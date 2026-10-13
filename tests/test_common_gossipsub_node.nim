@@ -4,6 +4,8 @@
 
 import std/[os, unittest], results
 
+import libp2p
+
 import network_lab/common/gossipsub_node
 
 const TestEnvironmentVariable = "NETWORK_LAB_TEST_POSITIVE_INT"
