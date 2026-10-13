@@ -3,8 +3,8 @@ duration: 60
 nodes:
   - name: no-env
     image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
-    count: 10
+    count: 0
   - name: with-env
     image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
-    count: 2
+    count: 20
     env: {FAILURE_PERCENT: 0}
