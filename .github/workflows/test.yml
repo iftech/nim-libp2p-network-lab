@@ -1,0 +1,73 @@
+name: Test nodes
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: iffy/install-nim@v5
+        with:
+          version: 2.2.10
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+
+      - name: Restore Nimble package cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nimble/pkgs
+            ~/.nimble/pkgs2
+            ~/.nimble/pkgcache
+          key: nimble-${{ runner.os }}-${{ hashFiles('nim_libp2p_network_lab.nimble', 'nimble.lock') }}
+
+      - name: Install dependencies
+        run: nimble setup -y
+
+      - name: Run unit and integration tests
+        run: nim c -r tests/test_all.nim
+
+  compile:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [dummy, bootstrap, gossipsub]
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: iffy/install-nim@v5
+        with:
+          version: 2.2.10
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+
+      - name: Restore Nimble package cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nimble/pkgs
+            ~/.nimble/pkgs2
+            ~/.nimble/pkgcache
+          key: nimble-${{ runner.os }}-${{ hashFiles('nim_libp2p_network_lab.nimble', 'nimble.lock') }}
+
+      - name: Install dependencies
+        run: nimble setup -y
+
+      - name: Compile node
+        run: nimble c -d:release --out:build/${{ matrix.node }} src/network_lab/nodes/${{ matrix.node }}/main.nim
