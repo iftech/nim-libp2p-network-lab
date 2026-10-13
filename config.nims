@@ -1,6 +1,6 @@
 switch("path", "src")
 switch("threads", "on")
-switch("mm", "refc")
+switch("mm", "orc")
 
 switch("warningAsError", "BareExcept:on")
 switch("warningAsError", "CaseTransition:on")
