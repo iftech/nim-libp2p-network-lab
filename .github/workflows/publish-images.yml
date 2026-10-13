@@ -2,10 +2,10 @@ name: Publish node images
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 concurrency:
-  group: publish-node-images-master
+  group: publish-node-images-main
   cancel-in-progress: true
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           build-args: NODE=${{ matrix.node }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.node }}:master
+            ghcr.io/${{ github.repository }}/${{ matrix.node }}:main
             ghcr.io/${{ github.repository }}/${{ matrix.node }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.node }}
           cache-to: type=gha,mode=max,scope=${{ matrix.node }}
