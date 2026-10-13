@@ -9,7 +9,11 @@ import network_lab/common/[gossipsub_node, shutdown]
 logScope:
   topics = "network-lab"
 
-proc main(): Future[int] {.async: (raises: [CancelledError]).} =
+proc main*(
+    started: Future[MultiAddress] = nil, shutdownRequested: AsyncEvent = nil
+): Future[int] {.async: (raises: [CancelledError]).} =
+  ## Run the bootstrap node. Optional futures allow an in-process caller to
+  ## discover its address and request shutdown without installing OS signals.
   var switch: Switch
   defer:
     if switch != nil:
@@ -46,10 +50,21 @@ proc main(): Future[int] {.async: (raises: [CancelledError]).} =
     error "Failed to determine bootstrap advertised addresses", error = $addresses.error
     return 1
 
+  let fullAddresses = addresses.get()
   info "Bootstrap node started",
-    peerId = switch.peerInfo.peerId, addresses = addresses.get(), topic = topic
+    peerId = switch.peerInfo.peerId, addresses = fullAddresses, topic = topic
 
-  await waitShutdownSignal()
+  if started != nil and not started.finished():
+    if fullAddresses.len == 0:
+      error "Bootstrap node has no advertised address"
+      return 1
+    started.complete(fullAddresses[0])
+
+  if shutdownRequested == nil:
+    await waitShutdownSignal()
+  else:
+    await shutdownRequested.wait()
   return 0
 
-quit(waitFor(main()))
+when isMainModule:
+  quit(waitFor(main()))

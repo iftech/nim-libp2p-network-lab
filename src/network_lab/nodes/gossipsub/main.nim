@@ -9,7 +9,7 @@ import network_lab/common/[gossipsub_node]
 logScope:
   topics = "network-lab"
 
-proc main(): Future[int] {.async: (raises: [CancelledError]).} =
+proc main*(): Future[int] {.async: (raises: [CancelledError]).} =
   var switch: Switch
   defer:
     if switch != nil:
@@ -53,13 +53,15 @@ proc main(): Future[int] {.async: (raises: [CancelledError]).} =
     peerId = switch.peerInfo.peerId,
     addresses = addresses.get(),
     topic = topic,
-    bootstrap = $bootstrap
+    bootstrapPeerId = bootstrap.peerId,
+    bootstrapAddress = bootstrap.transportAddress
 
   if not await waitForGossipPeer(switch, gossip, bootstrap, topic, timeoutSeconds):
     error "GossipSub self-check failed",
       topic = topic,
       timeoutSeconds = timeoutSeconds,
-      bootstrap = $bootstrap,
+      bootstrapPeerId = bootstrap.peerId,
+      bootstrapAddress = bootstrap.transportAddress,
       explanation =
         "No remote GossipSub peer subscribed to the topic before the deadline."
     return 1
@@ -67,4 +69,5 @@ proc main(): Future[int] {.async: (raises: [CancelledError]).} =
   info "GossipSub self-check passed", topic = topic
   return 0
 
-quit(waitFor(main()))
+when isMainModule:
+  quit(waitFor(main()))

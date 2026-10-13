@@ -12,6 +12,8 @@ const
   DefaultTopic* = "network-lab"
   DefaultSelfCheckTimeoutSeconds* = 120
 
+type BootstrapAddress* = tuple[peerId: PeerId, transportAddress: MultiAddress]
+
 proc parsePositiveIntEnv*(name: string, defaultValue: int): int =
   let value = getEnv(name)
   if value.len == 0:
@@ -27,6 +29,7 @@ proc parsePositiveIntEnv*(name: string, defaultValue: int): int =
   if result <= 0:
     warn "Positive integer environment value must be greater than zero; using default",
       name, value, defaultValue
+    result = defaultValue
 
 proc multiAddressOrExit(name, value: string): MultiAddress =
   let parsed = MultiAddress.init(value)
@@ -39,7 +42,11 @@ proc listenAddress*(): MultiAddress =
   let value = getEnv("LISTEN_ADDR", DefaultListenAddress)
   multiAddressOrExit("LISTEN_ADDR", value)
 
-proc bootstrapAddress*(): MultiAddress =
+proc parseBootstrapAddress*(value: string): MaResult[BootstrapAddress] =
+  ## Parse a complete dial address and require a terminal `/p2p/<peer-id>`.
+  parseFullAddress(value)
+
+proc bootstrapAddress*(): BootstrapAddress =
   let value = getEnv("BOOTSTRAP_ADDR")
   if value.len == 0:
     error "Missing bootstrap address",
@@ -47,7 +54,16 @@ proc bootstrapAddress*(): MultiAddress =
       explanation =
         "Set BOOTSTRAP_ADDR to a full multiaddress ending in /p2p/<peer-id>."
     quit(1)
-  multiAddressOrExit("BOOTSTRAP_ADDR", value)
+  let parsed = parseBootstrapAddress(value)
+  if parsed.isErr:
+    error "Invalid bootstrap address",
+      name = "BOOTSTRAP_ADDR",
+      value,
+      error = parsed.error,
+      explanation =
+        "Set BOOTSTRAP_ADDR to a full multiaddress ending in /p2p/<peer-id>."
+    quit(1)
+  parsed.get()
 
 proc gossipTopic*(): string =
   getEnv("GOSSIPSUB_TOPIC", DefaultTopic)
@@ -92,7 +108,7 @@ proc hasRemoteGossipPeer*(gossip: GossipSub, topic: string): bool =
 proc waitForGossipPeer*(
     switch: Switch,
     gossip: GossipSub,
-    bootstrap: MultiAddress,
+    bootstrap: BootstrapAddress,
     topic: string,
     timeoutSeconds: int,
 ): Future[bool] {.async: (raises: [CancelledError]).} =
@@ -104,8 +120,8 @@ proc waitForGossipPeer*(
 
     if attempt mod 5 == 0:
       try:
-        let conn = await switch.connect(bootstrap)
-        debug "Connected to bootstrap", conn
+        await switch.connect(bootstrap.peerId, @[bootstrap.transportAddress])
+        debug "Connected to bootstrap", peerId = bootstrap.peerId
       except CancelledError as e:
         raise e
       except CatchableError as e:
