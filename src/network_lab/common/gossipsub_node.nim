@@ -20,20 +20,18 @@ proc parsePositiveIntEnv*(name: string, defaultValue: int): int =
   try:
     result = parseInt(value)
   except ValueError:
-    warn "Invalid environment value; using default",
-      name = name, value = value, defaultValue = defaultValue
+    warn "Invalid positive integer environment value; using default",
+      name, value, defaultValue
     return defaultValue
 
   if result <= 0:
-    warn "Environment value must be greater than zero; using default",
-      name = name, value = value, defaultValue = defaultValue
-    result = defaultValue
+    warn "Positive integer environment value must be greater than zero; using default",
+      name, value, defaultValue
 
 proc multiAddressOrExit(name, value: string): MultiAddress =
   let parsed = MultiAddress.init(value)
   if parsed.isErr:
-    error "Invalid multiaddress configuration",
-      name = name, value = value, reason = $parsed.error
+    error "Invalid multiaddress", name, value, error = $parsed.error
     quit(1)
   parsed.get()
 
@@ -44,7 +42,7 @@ proc listenAddress*(): MultiAddress =
 proc bootstrapAddress*(): MultiAddress =
   let value = getEnv("BOOTSTRAP_ADDR")
   if value.len == 0:
-    error "Missing required bootstrap configuration",
+    error "Missing bootstrap address",
       name = "BOOTSTRAP_ADDR",
       explanation =
         "Set BOOTSTRAP_ADDR to a full multiaddress ending in /p2p/<peer-id>."
@@ -54,7 +52,7 @@ proc bootstrapAddress*(): MultiAddress =
 proc gossipTopic*(): string =
   getEnv("GOSSIPSUB_TOPIC", DefaultTopic)
 
-proc buildSwitch*(address: MultiAddress): Switch =
+proc buildSwitch*(address: MultiAddress): Switch {.raises: [].} =
   var builder =
     SwitchBuilder.new().withAddress(address).withTcpTransport().withNoise().withYamux()
 
@@ -69,15 +67,19 @@ proc buildSwitch*(address: MultiAddress): Switch =
     try:
       let privateKeyResult = PrivateKey.init(hexToSeqByte(privateKeyHex))
       if privateKeyResult.isErr:
-        error "Invalid PRIVATE_KEY configuration", reason = $privateKeyResult.error
+        error "Invalid private key", error = $privateKeyResult.error
         quit(1)
       let privateKey = privateKeyResult.get()
       builder = builder.withPrivateKey(privateKey)
-    except CatchableError as exc:
-      error "Invalid PRIVATE_KEY configuration", reason = exc.msg
+    except CatchableError as e:
+      error "Invalid private key", error = e.msg
       quit(1)
 
-  builder.build()
+  try:
+    builder.build()
+  except LPError as e:
+    error "Failed to build switch", error = e.msg
+    quit(1)
 
 proc buildGossipSub*(switch: Switch, rng: Rng): GossipSub =
   GossipSub.init(switch = switch, triggerSelf = true, rng = rng)
@@ -93,7 +95,7 @@ proc waitForGossipPeer*(
     bootstrap: MultiAddress,
     topic: string,
     timeoutSeconds: int,
-): Future[bool] {.async.} =
+): Future[bool] {.async: (raises: [CancelledError]).} =
   ## Dial the bootstrap periodically and wait until a remote GossipSub peer has
   ## subscribed to the configured topic. Returns false on deadline expiry.
   for attempt in 0 ..< timeoutSeconds:
@@ -104,8 +106,10 @@ proc waitForGossipPeer*(
       try:
         let peerId = await switch.connect(bootstrap)
         debug "Connected to bootstrap", peerId = peerId
-      except CatchableError as exc:
-        debug "Bootstrap dial failed; will retry", error = exc.msg
+      except CancelledError as e:
+        raise e
+      except CatchableError as e:
+        debug "Bootstrap dial failed; retrying", error = e.msg
 
     await sleepAsync(1.seconds)
 

@@ -4,12 +4,12 @@
 import chronos, chronicles
 import libp2p
 
-import network_lab/common/[gossipsub_node, shutdown]
+import network_lab/common/[gossipsub_node]
 
 logScope:
   topics = "network-lab"
 
-proc main(): Future[int] {.async.} =
+proc main(): Future[int] {.async: (raises: [CancelledError]).} =
   var switch: Switch
   defer:
     if switch != nil:
@@ -23,15 +23,30 @@ proc main(): Future[int] {.async.} =
     bootstrap = bootstrapAddress()
   switch = buildSwitch(listenAddress())
 
-  let gossip = buildGossipSub(switch, rng)
+  let gossip =
+    try:
+      buildGossipSub(switch, rng)
+    except InitializationError as e:
+      error "Failed to initialize GossipSub", error = e.msg
+      return 1
+
   gossip.subscribe(topic, nil)
-  switch.mount(gossip)
-  await switch.start()
+
+  try:
+    switch.mount(gossip)
+  except LPError as e:
+    error "Failed to mount GossipSub", error = e.msg
+    return 1
+
+  try:
+    await switch.start()
+  except LPError as e:
+    error "Failed to start Switch", error = e.msg
+    return 1
 
   let addresses = switch.peerInfo.fullAddrs()
   if addresses.isErr:
-    error "GossipSub node could not determine its advertised addresses",
-      reason = $addresses.error
+    error "Failed to determine GossipSub advertised addresses", error = $addresses.error
     return 1
 
   info "GossipSub node started",
@@ -41,12 +56,15 @@ proc main(): Future[int] {.async.} =
     bootstrap = $bootstrap
 
   if not await waitForGossipPeer(switch, gossip, bootstrap, topic, timeoutSeconds):
-    error "GossipSub self-check failed: no remote GossipSub peer connected before deadline",
-      topic = topic, timeoutSeconds = timeoutSeconds, bootstrap = $bootstrap
+    error "GossipSub self-check failed",
+      topic = topic,
+      timeoutSeconds = timeoutSeconds,
+      bootstrap = $bootstrap,
+      explanation =
+        "No remote GossipSub peer subscribed to the topic before the deadline."
     return 1
 
   info "GossipSub self-check passed", topic = topic
-  await waitShutdownSignal()
   return 0
 
 quit(waitFor(main()))

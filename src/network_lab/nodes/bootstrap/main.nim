@@ -9,7 +9,7 @@ import network_lab/common/[gossipsub_node, shutdown]
 logScope:
   topics = "network-lab"
 
-proc main(): Future[int] {.async.} =
+proc main(): Future[int] {.async: (raises: [CancelledError]).} =
   var switch: Switch
   defer:
     if switch != nil:
@@ -20,15 +20,30 @@ proc main(): Future[int] {.async.} =
     topic = gossipTopic()
   switch = buildSwitch(listenAddress())
 
-  let gossip = buildGossipSub(switch, rng)
+  let gossip =
+    try:
+      buildGossipSub(switch, rng)
+    except InitializationError as e:
+      error "Failed to initialize GossipSub", error = e.msg
+      return 1
+
   gossip.subscribe(topic, nil)
-  switch.mount(gossip)
-  await switch.start()
+
+  try:
+    switch.mount(gossip)
+  except LPError as e:
+    error "Failed to mount GossipSub", error = e.msg
+    return 1
+
+  try:
+    await switch.start()
+  except LPError as e:
+    error "Failed to start Switch", error = e.msg
+    return 1
 
   let addresses = switch.peerInfo.fullAddrs()
   if addresses.isErr:
-    error "Bootstrap node could not determine its advertised addresses",
-      reason = $addresses.error
+    error "Failed to determine bootstrap advertised addresses", error = $addresses.error
     return 1
 
   info "Bootstrap node started",
