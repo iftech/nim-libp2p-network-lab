@@ -1,4 +1,4 @@
-experiment: dummy nodes
+experiment: dummy-nodes
 duration: 60
 nodes:
   - name: no-env
