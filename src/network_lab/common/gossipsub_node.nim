@@ -105,7 +105,7 @@ proc waitForGossipPeer*(
     if attempt mod 5 == 0:
       try:
         let conn = await switch.connect(bootstrap)
-        debug "Connected to bootstrap", peerId = conn.peerId
+        debug "Connected to bootstrap", conn
       except CancelledError as e:
         raise e
       except CatchableError as e:
