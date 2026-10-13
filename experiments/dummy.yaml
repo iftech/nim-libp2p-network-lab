@@ -1,9 +1,6 @@
 experiment: run-nodes
 duration: 60
 nodes:
-  - name: no-env
-    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
-    count: 0
   - name: with-env
     image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
     count: 20
