@@ -20,8 +20,23 @@ proc main*(): Future[int] {.async: (raises: [CancelledError]).} =
     topic = gossipTopic()
     timeoutSeconds =
       parsePositiveIntEnv("SELF_CHECK_TIMEOUT_SECS", DefaultSelfCheckTimeoutSeconds)
-    bootstrap = bootstrapAddress()
-  switch = buildSwitch(listenAddress())
+
+  let bootstrapResult = bootstrapAddress()
+  if bootstrapResult.isErr:
+    error "Invalid configuration", error = bootstrapResult.error
+    return 1
+  let bootstrap = bootstrapResult.get()
+
+  let listenAddressResult = listenAddress()
+  if listenAddressResult.isErr:
+    error "Invalid configuration", error = listenAddressResult.error
+    return 1
+
+  let switchResult = buildSwitch(listenAddressResult.get())
+  if switchResult.isErr:
+    error "Invalid configuration", error = switchResult.error
+    return 1
+  switch = switchResult.get()
 
   let gossip =
     try:

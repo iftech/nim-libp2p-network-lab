@@ -36,14 +36,10 @@ jobs:
         run: nimble setup -y
 
       - name: Run unit and integration tests
-        run: nim c -r tests/test_all.nim
+        run: nimble test
 
   compile:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [dummy, bootstrap, gossipsub]
 
     steps:
       - uses: actions/checkout@v6
@@ -69,5 +65,5 @@ jobs:
       - name: Install dependencies
         run: nimble setup -y
 
-      - name: Compile node
-        run: nimble c -d:release --out:build/${{ matrix.node }} src/network_lab/nodes/${{ matrix.node }}/main.nim
+      - name: Compile nodes
+        run: nimble buildNodes

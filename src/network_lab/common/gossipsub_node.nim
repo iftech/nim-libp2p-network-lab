@@ -4,6 +4,7 @@
 import std/[os, strutils, tables]
 
 import chronos, chronicles
+import results
 import stew/byteutils
 import libp2p
 
@@ -13,6 +14,7 @@ const
   DefaultSelfCheckTimeoutSeconds* = 120
 
 type BootstrapAddress* = tuple[peerId: PeerId, transportAddress: MultiAddress]
+type ConfigResult*[T] = Result[T, string]
 
 proc parsePositiveIntEnv*(name: string, defaultValue: int): int =
   let value = getEnv(name)
@@ -31,71 +33,66 @@ proc parsePositiveIntEnv*(name: string, defaultValue: int): int =
       name, value, defaultValue
     result = defaultValue
 
-proc multiAddressOrExit(name, value: string): MultiAddress =
+proc parseMultiAddress(name, value: string): ConfigResult[MultiAddress] =
   let parsed = MultiAddress.init(value)
   if parsed.isErr:
-    error "Invalid multiaddress", name, value, error = $parsed.error
-    quit(1)
-  parsed.get()
+    return ConfigResult[MultiAddress].err(
+      "Invalid " & name & " multiaddress '" & value & "': " & $parsed.error
+    )
+  ConfigResult[MultiAddress].ok(parsed.get())
 
-proc listenAddress*(): MultiAddress =
+proc listenAddress*(): ConfigResult[MultiAddress] =
   let value = getEnv("LISTEN_ADDR", DefaultListenAddress)
-  multiAddressOrExit("LISTEN_ADDR", value)
+  parseMultiAddress("LISTEN_ADDR", value)
 
 proc parseBootstrapAddress*(value: string): MaResult[BootstrapAddress] =
   ## Parse a complete dial address and require a terminal `/p2p/<peer-id>`.
   parseFullAddress(value)
 
-proc bootstrapAddress*(): BootstrapAddress =
+proc bootstrapAddress*(): ConfigResult[BootstrapAddress] =
   let value = getEnv("BOOTSTRAP_ADDR")
   if value.len == 0:
-    error "Missing bootstrap address",
-      name = "BOOTSTRAP_ADDR",
-      explanation =
-        "Set BOOTSTRAP_ADDR to a full multiaddress ending in /p2p/<peer-id>."
-    quit(1)
+    return ConfigResult[BootstrapAddress].err(
+      "Missing BOOTSTRAP_ADDR; set it to a full multiaddress ending in " &
+        "/p2p/<peer-id>."
+    )
   let parsed = parseBootstrapAddress(value)
   if parsed.isErr:
-    error "Invalid bootstrap address",
-      name = "BOOTSTRAP_ADDR",
-      value,
-      error = parsed.error,
-      explanation =
-        "Set BOOTSTRAP_ADDR to a full multiaddress ending in /p2p/<peer-id>."
-    quit(1)
-  parsed.get()
+    return ConfigResult[BootstrapAddress].err(
+      "Invalid BOOTSTRAP_ADDR '" & value & "': " & $parsed.error
+    )
+  ConfigResult[BootstrapAddress].ok(parsed.get())
 
 proc gossipTopic*(): string =
   getEnv("GOSSIPSUB_TOPIC", DefaultTopic)
 
-proc buildSwitch*(address: MultiAddress): Switch {.raises: [].} =
+proc buildSwitch*(address: MultiAddress): ConfigResult[Switch] {.raises: [].} =
   var builder =
     SwitchBuilder.new().withAddress(address).withTcpTransport().withNoise().withYamux()
 
   let announcedAddress = getEnv("ANNOUNCE_ADDR")
   if announcedAddress.len > 0:
-    builder = builder.withAnnouncedAddress(
-      multiAddressOrExit("ANNOUNCE_ADDR", announcedAddress)
-    )
+    let parsedAddress = parseMultiAddress("ANNOUNCE_ADDR", announcedAddress)
+    if parsedAddress.isErr:
+      return ConfigResult[Switch].err(parsedAddress.error)
+    builder = builder.withAnnouncedAddress(parsedAddress.get())
 
   let privateKeyHex = getEnv("PRIVATE_KEY")
   if privateKeyHex.len > 0:
     try:
       let privateKeyResult = PrivateKey.init(hexToSeqByte(privateKeyHex))
       if privateKeyResult.isErr:
-        error "Invalid private key", error = $privateKeyResult.error
-        quit(1)
+        return
+          ConfigResult[Switch].err("Invalid PRIVATE_KEY: " & $privateKeyResult.error)
       let privateKey = privateKeyResult.get()
       builder = builder.withPrivateKey(privateKey)
     except CatchableError as e:
-      error "Invalid private key", error = e.msg
-      quit(1)
+      return ConfigResult[Switch].err("Invalid PRIVATE_KEY: " & e.msg)
 
   try:
-    builder.build()
+    ConfigResult[Switch].ok(builder.build())
   except LPError as e:
-    error "Failed to build switch", error = e.msg
-    quit(1)
+    ConfigResult[Switch].err("Failed to build switch: " & e.msg)
 
 proc buildGossipSub*(switch: Switch, rng: Rng): GossipSub =
   GossipSub.init(switch = switch, triggerSelf = true, rng = rng)

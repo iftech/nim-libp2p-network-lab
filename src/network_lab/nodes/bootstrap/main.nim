@@ -22,7 +22,17 @@ proc main*(
   let
     rng = libp2p.newRng()
     topic = gossipTopic()
-  switch = buildSwitch(listenAddress())
+
+  let listenAddressResult = listenAddress()
+  if listenAddressResult.isErr:
+    error "Invalid configuration", error = listenAddressResult.error
+    return 1
+
+  let switchResult = buildSwitch(listenAddressResult.get())
+  if switchResult.isErr:
+    error "Invalid configuration", error = switchResult.error
+    return 1
+  switch = switchResult.get()
 
   let gossip =
     try:

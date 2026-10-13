@@ -11,38 +11,62 @@ import network_lab/common/gossipsub_node
 const TestEnvironmentVariable = "NETWORK_LAB_TEST_POSITIVE_INT"
 const TestPeerId = "12D3KooWLbteJ8m8KoVktnMLH3oYKJcJRmrNdcKpk88vfZ5x5wSq"
 
-proc withEnvironmentValue(value: string, body: proc() {.closure.}) =
-  let originalValue = getEnv(TestEnvironmentVariable)
-  let wasDefined = existsEnv(TestEnvironmentVariable)
+proc withEnvironmentValue(name, value: string, body: proc() {.closure.}) =
+  let originalValue = getEnv(name)
+  let wasDefined = existsEnv(name)
   defer:
     if wasDefined:
-      putEnv(TestEnvironmentVariable, originalValue)
+      putEnv(name, originalValue)
     else:
-      delEnv(TestEnvironmentVariable)
+      delEnv(name)
 
-  putEnv(TestEnvironmentVariable, value)
+  putEnv(name, value)
   body()
 
 suite "positive integer environment parsing":
   test "empty value uses the default":
-    withEnvironmentValue("") do():
+    withEnvironmentValue(TestEnvironmentVariable, "") do():
       check parsePositiveIntEnv(TestEnvironmentVariable, 17) == 17
 
   test "malformed value uses the default":
-    withEnvironmentValue("not-a-number") do():
+    withEnvironmentValue(TestEnvironmentVariable, "not-a-number") do():
       check parsePositiveIntEnv(TestEnvironmentVariable, 17) == 17
 
   test "zero uses the default":
-    withEnvironmentValue("0") do():
+    withEnvironmentValue(TestEnvironmentVariable, "0") do():
       check parsePositiveIntEnv(TestEnvironmentVariable, 17) == 17
 
   test "negative value uses the default":
-    withEnvironmentValue("-5") do():
+    withEnvironmentValue(TestEnvironmentVariable, "-5") do():
       check parsePositiveIntEnv(TestEnvironmentVariable, 17) == 17
 
   test "overflowing value uses the default":
-    withEnvironmentValue("999999999999999999999999999999999999") do():
+    withEnvironmentValue(
+      TestEnvironmentVariable, "999999999999999999999999999999999999"
+    ) do():
       check parsePositiveIntEnv(TestEnvironmentVariable, 17) == 17
+
+suite "configuration parsing":
+  test "invalid listen address returns an error":
+    withEnvironmentValue("LISTEN_ADDR", "not-a-multiaddress") do():
+      check listenAddress().isErr
+
+  test "missing bootstrap address returns an error":
+    withEnvironmentValue("BOOTSTRAP_ADDR", "") do():
+      check bootstrapAddress().isErr
+
+  test "invalid announced address returns an error":
+    let address = MultiAddress.init("/ip4/127.0.0.1/tcp/0")
+    require address.isOk
+    withEnvironmentValue("ANNOUNCE_ADDR", "not-a-multiaddress") do():
+      check buildSwitch(address.get()).isErr
+
+  test "invalid private key returns an error":
+    let address = MultiAddress.init("/ip4/127.0.0.1/tcp/0")
+    require address.isOk
+    withEnvironmentValue("ANNOUNCE_ADDR", "") do():
+      withEnvironmentValue("PRIVATE_KEY", "not-hexadecimal") do():
+        check buildSwitch(address.get()).isErr
 
 suite "bootstrap address parsing":
   test "requires a terminal peer ID":
