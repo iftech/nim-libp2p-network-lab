@@ -7,7 +7,4 @@ description = "Container-ready nim-libp2p network lab nodes"
 license = "MIT"
 srcDir = "src"
 
-requires "nim == 2.2.10",
-  "libp2p >= 2.4.0",
-  "chronicles >= 0.12.3",
-  "chronos >= 4.2.2"
+requires "nim == 2.2.10", "libp2p >= 2.4.0", "chronicles >= 0.12.3", "chronos >= 4.2.2"

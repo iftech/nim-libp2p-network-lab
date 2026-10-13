@@ -3,3 +3,6 @@ build/
 *.exe
 *.out
 .env
+nimble.develop
+nimble.paths
+nimbledeps

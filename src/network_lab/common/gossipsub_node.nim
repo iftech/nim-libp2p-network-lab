@@ -16,45 +16,63 @@ proc parsePositiveIntEnv*(name: string, defaultValue: int): int =
 
   try:
     result = parseInt(value)
-    if result <= 0:
-      raise newException(ValueError, "must be greater than zero")
   except ValueError:
     warn "Invalid environment value; using default",
       name = name, value = value, defaultValue = defaultValue
+    return defaultValue
+
+  if result <= 0:
+    warn "Environment value must be greater than zero; using default",
+      name = name, value = value, defaultValue = defaultValue
     result = defaultValue
+
+proc multiAddressOrExit(name, value: string): MultiAddress =
+  let parsed = MultiAddress.init(value)
+  if parsed.isErr:
+    error "Invalid multiaddress configuration",
+      name = name, value = value, reason = $parsed.error
+    quit(1)
+  parsed.get()
 
 proc listenAddress*(): MultiAddress =
   let value = getEnv("LISTEN_ADDR", DefaultListenAddress)
-  MultiAddress.init(value).tryGet()
+  multiAddressOrExit("LISTEN_ADDR", value)
 
 proc bootstrapAddress*(): MultiAddress =
   let value = getEnv("BOOTSTRAP_ADDR")
   if value.len == 0:
-    raise newException(ValueError, "BOOTSTRAP_ADDR is required")
-  MultiAddress.init(value).tryGet()
+    error "Missing required bootstrap configuration",
+      name = "BOOTSTRAP_ADDR",
+      explanation =
+        "Set BOOTSTRAP_ADDR to a full multiaddress ending in /p2p/<peer-id>."
+    quit(1)
+  multiAddressOrExit("BOOTSTRAP_ADDR", value)
 
 proc gossipTopic*(): string =
   getEnv("GOSSIPSUB_TOPIC", DefaultTopic)
 
 proc buildSwitch*(address: MultiAddress): Switch =
-  var builder = SwitchBuilder
-    .new()
-    .withAddress(address)
-    .withTcpTransport()
-    .withNoise()
-    .withYamux()
+  var builder =
+    SwitchBuilder.new().withAddress(address).withTcpTransport().withNoise().withYamux()
 
   let announcedAddress = getEnv("ANNOUNCE_ADDR")
   if announcedAddress.len > 0:
-    builder = builder.withAnnouncedAddress(MultiAddress.init(announcedAddress).tryGet())
+    builder = builder.withAnnouncedAddress(
+      multiAddressOrExit("ANNOUNCE_ADDR", announcedAddress)
+    )
 
   let privateKeyHex = getEnv("PRIVATE_KEY")
   if privateKeyHex.len > 0:
     try:
-      let privateKey = PrivateKey.init(hexToSeqByte(privateKeyHex)).tryGet()
+      let privateKeyResult = PrivateKey.init(hexToSeqByte(privateKeyHex))
+      if privateKeyResult.isErr:
+        error "Invalid PRIVATE_KEY configuration", reason = $privateKeyResult.error
+        quit(1)
+      let privateKey = privateKeyResult.get()
       builder = builder.withPrivateKey(privateKey)
     except CatchableError as exc:
-      raise newException(ValueError, "Invalid PRIVATE_KEY: " & exc.msg)
+      error "Invalid PRIVATE_KEY configuration", reason = exc.msg
+      quit(1)
 
   builder.build()
 
