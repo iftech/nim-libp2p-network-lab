@@ -8,7 +8,7 @@ license = "MIT"
 srcDir = "src"
 
 requires(
-  "nim == 2.2.10", "libp2p >= 2.4.0", "chronicles >= 0.12.3", "chronos >= 4.2.2",
+  "nim >= 2.2.12", "libp2p >= 2.4.0", "chronicles >= 0.12.3", "chronos >= 4.2.2",
   "results >= 0.5.1", "stew >= 0.5.2",
 )
 

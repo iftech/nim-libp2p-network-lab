@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG NIM_VERSION=2.2.10
+ARG NIM_VERSION=2.2.12
 ARG NIMBLE_VERSION=0.24.1
 
 FROM nimlang/nim:${NIM_VERSION} AS build
@@ -28,9 +28,9 @@ COPY . .
 RUN test -n "$NODE" \
     && test -f "src/network_lab/nodes/${NODE}/main.nim" \
     && git clone --depth 1 --branch "$LIBP2P_REF" "$LIBP2P_REPOSITORY" /opt/nim-libp2p \
-    && cd /opt/nim-libp2p && nimble develop -y \
+    && cd /opt/nim-libp2p && nimble --useSystemNim develop -y \
     && cd /app \
-    && nimble setup -y \
+    && nimble --useSystemNim setup -y \
     && nim c -d:release --threads:on \
       --out:/out/network-node "src/network_lab/nodes/${NODE}/main.nim"
 
