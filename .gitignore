@@ -5,4 +5,5 @@ build/
 .env
 nimble.develop
 nimble.paths
+nimble.lock
 nimbledeps

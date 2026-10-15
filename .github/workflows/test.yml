@@ -30,7 +30,7 @@ jobs:
             ~/.nimble/pkgs
             ~/.nimble/pkgs2
             ~/.nimble/pkgcache
-          key: nimble-${{ runner.os }}-${{ hashFiles('nim_libp2p_network_lab.nimble', 'nimble.lock') }}
+          key: nimble-${{ runner.os }}-${{ hashFiles('nim_libp2p_network_lab.nimble') }}
 
       - name: Install dependencies
         run: nimble setup -y
@@ -60,7 +60,7 @@ jobs:
             ~/.nimble/pkgs
             ~/.nimble/pkgs2
             ~/.nimble/pkgcache
-          key: nimble-${{ runner.os }}-${{ hashFiles('nim_libp2p_network_lab.nimble', 'nimble.lock') }}
+          key: nimble-${{ runner.os }}-${{ hashFiles('nim_libp2p_network_lab.nimble') }}
 
       - name: Install dependencies
         run: nimble setup -y

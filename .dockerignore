@@ -3,3 +3,5 @@
 nimcache
 build
 *.out
+nimble.lock
+nimble.paths

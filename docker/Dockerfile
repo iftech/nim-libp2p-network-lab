@@ -3,6 +3,8 @@ ARG NIM_VERSION=2.2.10
 
 FROM nimlang/nim:${NIM_VERSION} AS build
 ARG NODE
+ARG LIBP2P_REPOSITORY=https://github.com/vacp2p/nim-libp2p.git
+ARG LIBP2P_REF=master
 
 WORKDIR /app
 
@@ -13,8 +15,12 @@ RUN apt-get update \
 
 COPY . .
 
+# Docker images use the current nim-libp2p master branch.
 RUN test -n "$NODE" \
     && test -f "src/network_lab/nodes/${NODE}/main.nim" \
+    && git clone --depth 1 --branch "$LIBP2P_REF" "$LIBP2P_REPOSITORY" /opt/nim-libp2p \
+    && cd /opt/nim-libp2p && nimble develop -y \
+    && cd /app \
     && nimble setup -y \
     && nim c -d:release --threads:on \
       --out:/out/network-node "src/network_lab/nodes/${NODE}/main.nim"
