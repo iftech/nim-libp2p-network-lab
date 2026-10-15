@@ -1,0 +1,46 @@
+name: Run experiments
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      build_images:
+        description: Build and publish node images before running the experiment
+        required: false
+        default: "yes"
+        type: choice
+        options: ["yes", "no"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-images:
+    if: github.event_name == 'schedule' || inputs.build_images != 'no'
+    uses: ./.github/workflows/build-images.yml
+
+  run:
+    needs: build-images
+    # `needs.build-images.result` is skipped when build_images is "no".
+    if: always() && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch the experiment
+        env:
+          # Fine-grained token with Actions: write access to iftech/10ksim.
+          GH_TOKEN: ${{ secrets.TENKSIM_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.sha }}
+        run: |
+          test -n "$GH_TOKEN" || {
+            echo "::error::TENKSIM_TOKEN is required to dispatch iftech/10ksim";
+            exit 1;
+          }
+          gh workflow run run-nodes.yml \
+            --repo iftech/10ksim \
+            --ref master \
+            -f repo="$REPOSITORY" \
+            -f ref="$REF" \
+            -f config=experiments/dummy.yaml

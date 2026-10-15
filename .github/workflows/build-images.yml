@@ -1,24 +1,19 @@
-name: Publish node images
+name: Build node images
 
 on:
-  workflow_run:
-    workflows: [Test nodes]
-    types: [completed]
+  workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  group: publish-node-images-main
-  cancel-in-progress: true
+  group: build-node-images-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  publish:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+  build:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -28,7 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - uses: docker/setup-buildx-action@v3
@@ -47,6 +41,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.node }}:main
-            ghcr.io/${{ github.repository }}/${{ matrix.node }}:${{ github.event.workflow_run.head_sha }}
+            ghcr.io/${{ github.repository }}/${{ matrix.node }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.node }}
           cache-to: type=gha,mode=max,scope=${{ matrix.node }}
