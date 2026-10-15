@@ -1,0 +1,17 @@
+experiment: run-nodes
+duration: 60
+nodes:
+  - name: failing
+    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
+    count: 4
+    self_terminating: true
+    env: {FAILURE_PERCENT: 99}
+  - name: succeding
+    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
+    count: 3
+    self_terminating: true
+    env: {FAILURE_PERCENT: 0}
+  - name: bootstrap
+    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/bootstrap, tag: main}
+    count: 1
+    self_terminating: false
