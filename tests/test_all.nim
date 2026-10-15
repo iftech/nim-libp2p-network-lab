@@ -3,4 +3,12 @@
 
 {.used.}
 
-import ./[test_common_gossipsub_node, test_network_lab]
+import std/os
+import ./imports
+
+const path {.strdefine.} = ""
+
+when path == "":
+  importTests(currentSourcePath().parentDir(), @[])
+else:
+  importTests(currentSourcePath().parentDir(), @[], path)

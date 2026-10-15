@@ -2,11 +2,12 @@
 # Copyright (c) Status Research & Development GmbH
 {.used.}
 
-import std/[os, unittest]
+import std/os
 
 import chronos
 import libp2p
 
+import ../tools/unittest
 import network_lab/nodes/bootstrap/main as bootstrap_main
 import network_lab/nodes/gossipsub/main as gossipsub_main
 
@@ -51,6 +52,6 @@ proc runNodeIntegrationTest(): Future[bool] {.async.} =
       else:
         delEnv(name)
 
-suite "node integration":
-  test "bootstrap and GossipSub mains complete the self-check":
-    check waitFor(runNodeIntegrationTest())
+suite "Integration :: GossipSub":
+  asyncTest "Bootstrap and GossipSub mains complete the self-check":
+    check await runNodeIntegrationTest()
