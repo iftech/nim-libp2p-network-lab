@@ -44,3 +44,10 @@ jobs:
             ghcr.io/${{ github.repository }}/${{ matrix.node }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.node }}
           cache-to: type=gha,mode=max,scope=${{ matrix.node }}
+
+      - name: Retain the latest 10 image versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: nim-libp2p-network-lab/${{ matrix.node }}
+          package-type: container
+          min-versions-to-keep: 10
