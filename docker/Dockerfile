@@ -16,7 +16,7 @@ COPY . .
 RUN test -n "$NODE" \
     && test -f "src/network_lab/nodes/${NODE}/main.nim" \
     && nimble setup -y \
-    && nimble c -d:release --threads:on \
+    && nim c -d:release --threads:on \
       --out:/out/network-node "src/network_lab/nodes/${NODE}/main.nim"
 
 FROM debian:bookworm-slim
