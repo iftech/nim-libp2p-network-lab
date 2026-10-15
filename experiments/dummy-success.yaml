@@ -1,7 +1,8 @@
 experiment: run-nodes
 duration: 60
 nodes:
-  - name: with-env
+  - name: node
     image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/dummy, tag: main}
-    count: 20
+    count: 1
+    self_terminating: true
     env: {FAILURE_PERCENT: 0}

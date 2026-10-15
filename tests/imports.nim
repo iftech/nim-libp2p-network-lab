@@ -34,11 +34,16 @@ macro importTests*(
       if not name.startsWith("test_") or name == "test_all" or ext != ".nim":
         continue
       let isIgnored = ignorePaths.len > 0 and ignorePaths.anyIt(path.contains(it))
-      let isMatched = normalizedMatch.len == 0 or file.replace('\\', '/').contains(normalizedMatch)
+      let isMatched =
+        normalizedMatch.len == 0 or file.replace('\\', '/').contains(normalizedMatch)
       if not isIgnored and isMatched:
         matchingFiles.add(file)
 
-  sort(matchingFiles, proc(a, b: string): int = cmp(a.replace('\\', '/'), b.replace('\\', '/')))
+  sort(
+    matchingFiles,
+    proc(a, b: string): int =
+      cmp(a.replace('\\', '/'), b.replace('\\', '/')),
+  )
   for file in matchingFiles:
     imports.add(newNimNode(nnkImportStmt).add(newLit(file)))
 

@@ -29,6 +29,7 @@ template suite*(name: string, timeout: untyped, body: untyped): untyped =
       withSuiteAsyncTestTimeout(timeout):
         unittest2.suite name:
           body
+
     testSuite()
 
 template suite*(name: string, body: untyped): untyped =
@@ -37,6 +38,7 @@ template suite*(name: string, body: untyped): untyped =
       withSuiteAsyncTestTimeout(asyncTestTimeoutDefault):
         unittest2.suite name:
           body
+
     testSuite()
 
 template asyncTest*(name: string, body: untyped): untyped =
@@ -55,7 +57,8 @@ template asyncTest*(name: string, timeout: untyped, body: untyped): untyped =
     try:
       waitFor testFut.wait(timeout)
     except AsyncTimeoutError as exc:
-      checkpoint "[TEST TIMEOUT] Test body exceeded its configured timeout of " & $timeout & "."
+      checkpoint "[TEST TIMEOUT] Test body exceeded its configured timeout of " &
+        $timeout & "."
       try:
         waitFor testFut.cancelAndWait().wait(asyncTestCleanupTimeout)
       except AsyncTimeoutError:
