@@ -5,7 +5,7 @@ ARG NIMBLE_VERSION=0.24.1
 FROM nimlang/nim:${NIM_VERSION} AS build
 ARG NODE
 ARG NIMBLE_VERSION
-ARG LIBP2P_REPOSITORY=https://github.com/vacp2p/nim-libp2p.git
+ARG LIBP2P_REPOSITORY=https://github.com/iftech/nim-libp2p.git
 ARG LIBP2P_REF=master
 
 WORKDIR /app
