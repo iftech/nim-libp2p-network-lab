@@ -33,14 +33,22 @@ jobs:
           GH_TOKEN: ${{ secrets.TENKSIM_TOKEN }}
           REPOSITORY: ${{ github.repository }}
           REF: ${{ github.sha }}
+          BUILD_IMAGES_RESULT: ${{ needs.build-images.result }}
         run: |
           test -n "$GH_TOKEN" || {
             echo "::error::TENKSIM_TOKEN is required to dispatch iftech/10ksim";
             exit 1;
           }
+
+          TAG_INPUT=()
+          if [ "$BUILD_IMAGES_RESULT" = "success" ]; then
+            TAG_INPUT=(-f "tag=$REF")
+          fi
+
           gh workflow run run-nodes.yml \
             --repo iftech/10ksim \
             --ref master \
             -f repo="$REPOSITORY" \
             -f ref="$REF" \
-            -f config=experiments/dummy.yaml
+            "${TAG_INPUT[@]}" \
+            -f config=experiments/dummy-success.yaml
