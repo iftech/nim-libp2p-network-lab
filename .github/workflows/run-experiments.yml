@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
   packages: write
 
 jobs:
@@ -26,29 +27,146 @@ jobs:
     # `needs.build-images.result` is skipped when build_images is "no".
     if: always() && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
     runs-on: ubuntu-24.04
+    env:
+      REPOSITORY: ${{ github.repository }}
+      REF: ${{ github.sha }}
+      EXPERIMENT_REPOSITORY: iftech/10ksim
+      EXPERIMENT_WORKFLOW: run-nodes.yml
+      EXPERIMENT_CONFIG: experiments/dummy-success.yaml
     steps:
       - name: Dispatch the experiment
+        id: dispatch
         env:
           # Fine-grained token with Actions: write access to iftech/10ksim.
           GH_TOKEN: ${{ secrets.TENKSIM_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
-          REF: ${{ github.sha }}
           BUILD_IMAGES_RESULT: ${{ needs.build-images.result }}
         run: |
+          set -euo pipefail
+
           test -n "$GH_TOKEN" || {
             echo "::error::TENKSIM_TOKEN is required to dispatch iftech/10ksim";
             exit 1;
           }
 
-          TAG_INPUT=()
+          TAG=""
           if [ "$BUILD_IMAGES_RESULT" = "success" ]; then
-            TAG_INPUT=(-f "tag=$REF")
+            TAG="$REF"
           fi
 
-          gh workflow run run-nodes.yml \
-            --repo iftech/10ksim \
-            --ref master \
-            -f repo="$REPOSITORY" \
-            -f ref="$REF" \
-            "${TAG_INPUT[@]}" \
-            -f config=experiments/dummy-success.yaml
+          DISPATCH_RESPONSE=$(
+            jq -n \
+              --arg repo "$REPOSITORY" \
+              --arg ref "$REF" \
+              --arg tag "$TAG" \
+              --arg config "$EXPERIMENT_CONFIG" \
+              '{
+                ref: "master",
+                return_run_details: true,
+                inputs: {repo: $repo, ref: $ref, tag: $tag, config: $config}
+              }' |
+              gh api \
+                --method POST \
+                "repos/$EXPERIMENT_REPOSITORY/actions/workflows/$EXPERIMENT_WORKFLOW/dispatches" \
+                --input -
+          )
+
+          RUN_ID=$(jq -r '.workflow_run_id // empty' <<< "$DISPATCH_RESPONSE")
+          RUN_URL=$(jq -r '.html_url // empty' <<< "$DISPATCH_RESPONSE")
+          test -n "$RUN_ID" && test -n "$RUN_URL" || {
+            echo "::error::The 10ksim dispatch did not return workflow run details";
+            exit 1;
+          }
+
+          echo "Dispatched experiment: $RUN_URL"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Analyze the experiment outcome
+        id: analyze
+        env:
+          GH_TOKEN: ${{ secrets.TENKSIM_TOKEN }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+        run: |
+          set -euo pipefail
+
+          gh run watch "$RUN_ID" \
+            --repo "$EXPERIMENT_REPOSITORY" \
+            --interval 10
+
+          CONCLUSION=$(
+            gh run view "$RUN_ID" \
+              --repo "$EXPERIMENT_REPOSITORY" \
+              --json conclusion \
+              --jq .conclusion
+          )
+
+          RESULTS_DIR="$RUNNER_TEMP/10ksim-$RUN_ID"
+          ARTIFACT_NAME="run-$RUN_ID"
+          ARTIFACT_ID=$(
+            gh api "repos/$EXPERIMENT_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+              --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" |
+              head -n 1
+          )
+
+          PROBLEMS=0
+          RESULT_ERROR=""
+          if [ -n "$ARTIFACT_ID" ]; then
+            mkdir -p "$RESULTS_DIR"
+            if ! gh run download "$RUN_ID" \
+                --repo "$EXPERIMENT_REPOSITORY" \
+                --name "$ARTIFACT_NAME" \
+                --dir "$RESULTS_DIR"; then
+              RESULT_ERROR="the results artifact could not be downloaded"
+            elif [ -f "$RESULTS_DIR/node_results.json" ]; then
+              if ! PROBLEMS=$(jq -er '.problems | numbers' "$RESULTS_DIR/node_results.json"); then
+                RESULT_ERROR="node_results.json has no numeric problems field"
+              fi
+            else
+              RESULT_ERROR="the results artifact has no node_results.json"
+            fi
+          fi
+
+          if [ "$CONCLUSION" = "success" ] && [ "$PROBLEMS" = "0" ] && [ -z "$RESULT_ERROR" ]; then
+            echo "Experiment succeeded: $RUN_URL"
+            echo "unsuccessful=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DETAILS="workflow conclusion: $CONCLUSION"
+          if [ -n "$RESULT_ERROR" ]; then
+            DETAILS="$DETAILS; $RESULT_ERROR"
+          elif [ "$PROBLEMS" != "0" ]; then
+            DETAILS="$DETAILS; reported problems: $PROBLEMS"
+          fi
+
+          echo "Experiment unsuccessful: $DETAILS"
+          echo "unsuccessful=true" >> "$GITHUB_OUTPUT"
+          echo "details=$DETAILS" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue for an unsuccessful experiment
+        if: steps.analyze.outputs.unsuccessful == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          DETAILS: ${{ steps.analyze.outputs.details }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_BODY=$(printf '%s\n' \
+            "The automated experiment had an unsuccessful outcome." \
+            "" \
+            "- Experiment: \`$EXPERIMENT_CONFIG\`" \
+            "- Source: \`$REPOSITORY@$REF\`" \
+            "- Result: $DETAILS" \
+            "- 10ksim workflow: [$RUN_ID]($RUN_URL)")
+
+          ISSUE_URL=$(
+            gh issue create \
+              --repo "$REPOSITORY" \
+              --title "Experiment failed: $EXPERIMENT_CONFIG" \
+              --body "$ISSUE_BODY" \
+              --assignee vladopajic
+          )
+          echo "Opened issue: $ISSUE_URL"
