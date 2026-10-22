@@ -32,7 +32,7 @@ jobs:
       REF: ${{ github.sha }}
       EXPERIMENT_REPOSITORY: iftech/10ksim
       EXPERIMENT_WORKFLOW: run-nodes.yml
-      EXPERIMENT_CONFIG: experiments/dummy-failure.yaml
+      EXPERIMENT_CONFIG: experiments/dummy-success.yaml
     steps:
       - name: Dispatch the experiment
         id: dispatch
