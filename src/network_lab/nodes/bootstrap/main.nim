@@ -3,78 +3,87 @@
 
 import chronos, chronicles
 import libp2p
-
-import network_lab/common/[gossipsub_node, shutdown]
+import network_lab/common/[coordinator, gossipsub_node, shutdown]
 
 logScope:
   topics = "network-lab"
 
 proc main*(
     started: Future[MultiAddress] = nil, shutdownRequested: AsyncEvent = nil
-): Future[int] {.async: (raises: [CancelledError]).} =
-  ## Run the bootstrap node. Optional futures allow an in-process caller to
-  ## discover its address and request shutdown without installing OS signals.
-  var switch: Switch
+): Future[int] {.async.} =
+  let config = loadConfig(true)
+  if config.isErr:
+    error "Invalid bootstrap configuration", error = config.error
+    return 1
+  let cfg = config.get()
+  let built = buildSwitch(cfg.listen)
+  if built.isErr:
+    error "Cannot build bootstrap switch", error = built.error
+    return 1
+  let switch = built.get()
   defer:
-    if switch != nil:
-      await switch.stop()
-
+    await switch.stop()
   let
     rng = libp2p.newRng()
-    topic = gossipTopic()
-
-  let listenAddressResult = listenAddress()
-  if listenAddressResult.isErr:
-    error "Invalid configuration", error = listenAddressResult.error
-    return 1
-
-  let switchResult = buildSwitch(listenAddressResult.get())
-  if switchResult.isErr:
-    error "Invalid configuration", error = switchResult.error
-    return 1
-  switch = switchResult.get()
-
-  let gossip =
-    try:
-      buildGossipSub(switch, rng)
-    except InitializationError as e:
-      error "Failed to initialize GossipSub", error = e.msg
-      return 1
-
-  gossip.subscribe(topic, nil)
-
-  try:
-    switch.mount(gossip)
-  except LPError as e:
-    error "Failed to mount GossipSub", error = e.msg
-    return 1
-
-  try:
-    await switch.start()
-  except LPError as e:
-    error "Failed to start Switch", error = e.msg
-    return 1
-
+    coordinator = newCoordinator(cfg.participants, cfg.configSignature())
+  discard mountBase(switch, rng)
+  switch.mount(coordinator.protocol())
+  await switch.start()
   let addresses = switch.peerInfo.fullAddrs()
-  if addresses.isErr:
-    error "Failed to determine bootstrap advertised addresses", error = $addresses.error
+  if addresses.isErr or addresses.get().len == 0:
+    error "Bootstrap has no advertised address"
     return 1
-
-  let fullAddresses = addresses.get()
-  info "Bootstrap node started",
-    peerId = switch.peerInfo.peerId, addresses = fullAddresses, topic = topic
-
+  info "Bootstrap started",
+    peerId = switch.peerInfo.peerId,
+    addresses = addresses.get(),
+    transport = cfg.transport,
+    libp2pRevision = Libp2pRevision,
+    participants = cfg.participants,
+    timeoutSeconds = cfg.timeoutSeconds
   if started != nil and not started.finished():
-    if fullAddresses.len == 0:
-      error "Bootstrap node has no advertised address"
+    started.complete(addresses.get()[0])
+  let shutdown =
+    if shutdownRequested == nil:
+      waitShutdownSignal()
+    else:
+      shutdownRequested.wait()
+  defer:
+    await noCancel shutdown.cancelAndWait()
+  let deadline = Moment.now() + cfg.timeoutSeconds.seconds
+  var previousPhase = ""
+  while not shutdown.finished():
+    let currentPhase = coordinator.phase()
+    if currentPhase != previousPhase:
+      info "Coordinator phase",
+        phase = currentPhase,
+        registered = coordinator.registered(),
+        ready = coordinator.ready.len,
+        published = coordinator.published.len,
+        verified = coordinator.verified.len,
+        expected = cfg.participants
+      previousPhase = currentPhase
+    if currentPhase == "failed":
+      error "Bootstrap observed failure", reason = coordinator.failure
       return 1
-    started.complete(fullAddresses[0])
-
-  if shutdownRequested == nil:
-    await waitShutdownSignal()
-  else:
-    await shutdownRequested.wait()
+    if currentPhase != "complete" and Moment.now() >= deadline:
+      error "Bootstrap coordination timed out",
+        phase = currentPhase,
+        registered = coordinator.registered(),
+        ready = coordinator.ready.len,
+        published = coordinator.published.len,
+        verified = coordinator.verified.len,
+        expected = cfg.participants
+      return 1
+    await sleepAsync(1.seconds)
+  if coordinator.phase() != "complete":
+    error "Bootstrap stopped before experiment completed", phase = coordinator.phase()
+    return 1
+  info "Bootstrap stopped after experiment completed"
   return 0
 
 when isMainModule:
-  quit(waitFor(main()))
+  try:
+    quit(waitFor(main()))
+  except CatchableError as exc:
+    error "Bootstrap fatal error", error = exc.msg
+    quit(1)

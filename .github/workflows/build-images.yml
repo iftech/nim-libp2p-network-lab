@@ -37,7 +37,9 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
-          build-args: NODE=${{ matrix.node }}
+          build-args: |
+            NODE=${{ matrix.node }}
+            LIBP2P_CACHE_BUSTER=${{ github.run_id }}-${{ github.run_attempt }}
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.node }}:main

@@ -32,7 +32,7 @@ jobs:
       REF: ${{ github.sha }}
       EXPERIMENT_REPOSITORY: iftech/10ksim
       EXPERIMENT_WORKFLOW: run-nodes.yml
-      EXPERIMENT_CONFIG: experiments/dummy-success.yaml
+      EXPERIMENT_CONFIG: experiments/gossipsub-regression.yaml
     steps:
       - name: Dispatch the experiment
         id: dispatch
@@ -111,6 +111,7 @@ jobs:
 
           PROBLEMS=0
           RESULT_ERROR=""
+          # 10ksim uploads this artifact only when it reports problems.
           if [ -n "$ARTIFACT_ID" ]; then
             mkdir -p "$RESULTS_DIR"
             if ! gh run download "$RUN_ID" \
@@ -125,6 +126,8 @@ jobs:
             else
               RESULT_ERROR="the results artifact has no node_results.json"
             fi
+          elif [ "$CONCLUSION" != "success" ]; then
+            RESULT_ERROR="the results artifact is missing"
           fi
 
           if [ "$CONCLUSION" = "success" ] && [ "$PROBLEMS" = "0" ] && [ -z "$RESULT_ERROR" ]; then
@@ -145,7 +148,7 @@ jobs:
           echo "details=$DETAILS" >> "$GITHUB_OUTPUT"
 
       - name: Open an issue for an unsuccessful experiment
-        if: steps.analyze.outputs.unsuccessful == 'true'
+        if: always() && (steps.analyze.outputs.unsuccessful == 'true' || (steps.dispatch.outcome == 'success' && steps.analyze.outcome == 'failure'))
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
@@ -154,19 +157,30 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "$DETAILS" ]; then
+            DETAILS="experiment analysis failed; inspect the workflow logs"
+          fi
+
           ISSUE_BODY=$(printf '%s\n' \
             "The automated experiment had an unsuccessful outcome." \
             "" \
             "- Experiment: \`$EXPERIMENT_CONFIG\`" \
             "- Source: \`$REPOSITORY@$REF\`" \
             "- Result: $DETAILS" \
-            "- 10ksim workflow: [$RUN_ID]($RUN_URL)")
+            "- 10ksim workflow and logs artifact: [$RUN_ID]($RUN_URL)")
 
+          RESULTS_DIR="$RUNNER_TEMP/10ksim-$RUN_ID"
+          if [ -f "$RESULTS_DIR/summary.md" ]; then
+            ISSUE_BODY="$ISSUE_BODY"$'\n\n'"$(cat "$RESULTS_DIR/summary.md")"
+          fi
+
+          ISSUE_BODY_FILE="$RUNNER_TEMP/experiment-issue-$RUN_ID.md"
+          printf '%s\n' "$ISSUE_BODY" > "$ISSUE_BODY_FILE"
           ISSUE_URL=$(
             gh issue create \
               --repo "$REPOSITORY" \
               --title "Experiment failed: $EXPERIMENT_CONFIG" \
-              --body "$ISSUE_BODY" \
+              --body-file "$ISSUE_BODY_FILE" \
               --assignee vladopajic
           )
           echo "Opened issue: $ISSUE_URL"

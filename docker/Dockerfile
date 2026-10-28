@@ -3,10 +3,10 @@ ARG NIM_VERSION=2.2.12
 ARG NIMBLE_VERSION=0.24.1
 
 FROM nimlang/nim:${NIM_VERSION} AS build
-ARG NODE
 ARG NIMBLE_VERSION
 ARG LIBP2P_REPOSITORY=https://github.com/iftech/nim-libp2p.git
 ARG LIBP2P_REF=master
+ARG LIBP2P_CACHE_BUSTER=local
 
 WORKDIR /app
 
@@ -22,16 +22,22 @@ RUN apt-get update \
     && rm /tmp/nimble.tar.gz \
     && rm -rf /var/lib/apt/lists/*
 
+# Docker images use the current nim-libp2p master branch.
+RUN test -n "$LIBP2P_CACHE_BUSTER" \
+    && git clone --depth 1 --branch "$LIBP2P_REF" "$LIBP2P_REPOSITORY" /opt/nim-libp2p \
+    && cd /opt/nim-libp2p \
+    && nimble --useSystemNim setup -y \
+    && grep -F /opt/nim-libp2p nimble.paths \
+    && cp nimble.paths /app/nimble.paths \
+    && printf '%s\n' '--path:"/app/src"' >> /app/nimble.paths
+
 COPY . .
 
-# Docker images use the current nim-libp2p master branch.
+ARG NODE
 RUN test -n "$NODE" \
     && test -f "src/network_lab/nodes/${NODE}/main.nim" \
-    && git clone --depth 1 --branch "$LIBP2P_REF" "$LIBP2P_REPOSITORY" /opt/nim-libp2p \
-    && cd /opt/nim-libp2p && nimble --useSystemNim develop -y \
-    && cd /app \
-    && nimble --useSystemNim setup -y \
-    && nim c -d:release --threads:on \
+    && nim c -d:release --threads:on --path:/opt/nim-libp2p \
+      -d:Libp2pRevision="$(git -C /opt/nim-libp2p rev-parse HEAD)" \
       --out:/out/network-node "src/network_lab/nodes/${NODE}/main.nim"
 
 FROM debian:bookworm-slim
