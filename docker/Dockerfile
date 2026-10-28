@@ -27,7 +27,7 @@ RUN test -n "$LIBP2P_CACHE_BUSTER" \
     && git clone --depth 1 --branch "$LIBP2P_REF" "$LIBP2P_REPOSITORY" /opt/nim-libp2p \
     && cd /opt/nim-libp2p \
     && nimble --useSystemNim setup -y \
-    && grep -F /opt/nim-libp2p nimble.paths \
+    && printf '%s\n' '--path:"/opt/nim-libp2p"' >> nimble.paths \
     && cp nimble.paths /app/nimble.paths \
     && printf '%s\n' '--path:"/app/src"' >> /app/nimble.paths
 

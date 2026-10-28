@@ -3,7 +3,7 @@
 
 import std/[hashes, os, strutils, tables]
 from std/net import getPrimaryIPAddr
-import chronos, chronicles, results
+import chronos, results
 import stew/byteutils
 import libp2p
 import libp2p/protocols/[kademlia, ping]

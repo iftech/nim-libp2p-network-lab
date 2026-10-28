@@ -153,7 +153,12 @@ proc run(): Future[int] {.async.} =
       overrideAddress
     else:
       cfg.bootstrapHost & ":" & $cfg.bootstrapPort
-  await sleepAsync((cfg.index * cfg.staggerMs).milliseconds)
+  await sleepAsync(
+    min(
+      (cfg.index * cfg.staggerMs).milliseconds,
+      max(deadline - Moment.now(), 0.milliseconds),
+    )
+  )
   var
     bootstrapPeer: PeerId
     bootstrapAddr: MultiAddress
