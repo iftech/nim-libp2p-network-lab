@@ -6,7 +6,6 @@ FROM nimlang/nim:${NIM_VERSION} AS build
 ARG NIMBLE_VERSION
 ARG LIBP2P_REPOSITORY=https://github.com/iftech/nim-libp2p.git
 ARG LIBP2P_REF=master
-ARG LIBP2P_CACHE_BUSTER=local
 
 WORKDIR /app
 
@@ -22,9 +21,11 @@ RUN apt-get update \
     && rm /tmp/nimble.tar.gz \
     && rm -rf /var/lib/apt/lists/*
 
-# Docker images use the current nim-libp2p master branch.
-RUN test -n "$LIBP2P_CACHE_BUSTER" \
-    && git clone --depth 1 --branch "$LIBP2P_REF" "$LIBP2P_REPOSITORY" /opt/nim-libp2p \
+# LIBP2P_REF may be a branch, tag, or a commit resolved by the workflow.
+RUN git init /opt/nim-libp2p \
+    && git -C /opt/nim-libp2p remote add origin "$LIBP2P_REPOSITORY" \
+    && git -C /opt/nim-libp2p fetch --depth 1 origin "$LIBP2P_REF" \
+    && git -C /opt/nim-libp2p checkout --detach FETCH_HEAD \
     && cd /opt/nim-libp2p \
     && nimble --useSystemNim setup -y \
     && printf '%s\n' '--path:"/opt/nim-libp2p"' >> nimble.paths \
