@@ -13,7 +13,11 @@ requires(
 )
 
 task test, "Run unit and integration tests":
+  mkDir "build"
   exec "nim c -r tests/test_all.nim"
+  exec "nim c -d:release --out:build/bootstrap src/network_lab/nodes/bootstrap/main.nim"
+  exec "nim c -d:release --out:build/gossipsub src/network_lab/nodes/gossipsub/main.nim"
+  exec "python3 tests/integration/test_gossipsub_process.py build/bootstrap build/gossipsub"
 
 task buildNodes, "Build all node binaries":
   mkDir "build"

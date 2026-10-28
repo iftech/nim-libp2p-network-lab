@@ -1,57 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
+
 {.used.}
 
-import std/os
+import std/[sets, unittest]
+import results
+import network_lab/common/regression_messages
 
-import chronos
-import libp2p
+suite "GossipSub delivery accounting":
+  test "99 percent rounds upward and uses all remote publishers":
+    check requiredDeliveries(499, 3, 99) == 1480
+    check requiredDeliveries(2, 3, 99) == 3
 
-import ../tools/unittest
-import network_lab/nodes/bootstrap/main as bootstrap_main
-import network_lab/nodes/gossipsub/main as gossipsub_main
+  test "only unique valid remote messages contribute to delivery":
+    let state = Received(runId: "run")
+    check state.record(message("run", 1, 0), 0, 2, 3).isOk
+    check state.record(message("run", 1, 0), 0, 2, 3).isOk
+    check state.record(message("run", 0, 0), 0, 2, 3).isOk
+    check state.seen.len == 1
+    check state.selfCount == 1
+    check state.record(message("other", 1, 1), 0, 2, 3).isErr
+    check state.record(message("run", 2, 1), 0, 2, 3).isErr
+    check state.record("run|1|9|network-lab-regression", 0, 2, 3).isErr
+    check state.seen.len == 1
 
-const TestTopic = "network-lab-integration-test"
-
-proc runNodeIntegrationTest(): Future[bool] {.async.} =
-  let environmentNames =
-    ["LISTEN_ADDR", "BOOTSTRAP_ADDR", "GOSSIPSUB_TOPIC", "SELF_CHECK_TIMEOUT_SECS"]
-  var originalEnvironment: array[4, tuple[defined: bool, value: string]]
-  for index, name in environmentNames:
-    originalEnvironment[index] = (existsEnv(name), getEnv(name))
-
-  let
-    started = newFuture[MultiAddress]("Bootstrap node started")
-    shutdownRequested = newAsyncEvent()
-
-  putEnv("LISTEN_ADDR", "/ip4/127.0.0.1/tcp/0")
-  putEnv("GOSSIPSUB_TOPIC", TestTopic)
-  putEnv("SELF_CHECK_TIMEOUT_SECS", "10")
-  delEnv("BOOTSTRAP_ADDR")
-
-  let bootstrapFuture = bootstrap_main.main(started, shutdownRequested)
-  try:
-    let bootstrapAddress = await started.wait(10.seconds)
-    putEnv("BOOTSTRAP_ADDR", $bootstrapAddress)
-    putEnv("LISTEN_ADDR", "/ip4/127.0.0.1/tcp/0")
-
-    let gossipExitCode = await gossipsub_main.main()
-    shutdownRequested.fire()
-    let bootstrapExitCode = await bootstrapFuture
-    return bootstrapExitCode == 0 and gossipExitCode == 0
-  except AsyncTimeoutError:
-    return false
-  finally:
-    shutdownRequested.fire()
-    if not bootstrapFuture.finished():
-      discard await bootstrapFuture
-
-    for index, name in environmentNames:
-      if originalEnvironment[index].defined:
-        putEnv(name, originalEnvironment[index].value)
-      else:
-        delEnv(name)
-
-suite "Integration :: GossipSub":
-  asyncTest "Bootstrap and GossipSub mains complete the self-check":
-    check await runNodeIntegrationTest()
+  test "delivery threshold fails at 1479 and passes at 1480":
+    let state = Received(runId: "run")
+    for publisher in 1 ..< 499:
+      for round in 0 ..< 3:
+        if state.seen.len < 1479:
+          check state.record(message("run", publisher, round), 0, 499, 3).isOk
+    let required = requiredDeliveries(499, 3, 99)
+    check state.seen.len < required
+    check state.record(message("run", 494, 0), 0, 499, 3).isOk
+    check state.seen.len >= required

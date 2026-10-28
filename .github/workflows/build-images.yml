@@ -12,8 +12,29 @@ permissions:
   contents: read
   packages: write
 
+env:
+  LIBP2P_REPOSITORY: https://github.com/iftech/nim-libp2p.git
+
 jobs:
+  resolve-libp2p:
+    runs-on: ubuntu-24.04
+    outputs:
+      revision: ${{ steps.resolve.outputs.revision }}
+    steps:
+      - name: Resolve nim-libp2p master
+        id: resolve
+        run: |
+          set -euo pipefail
+          REVISION=$(git ls-remote "$LIBP2P_REPOSITORY" refs/heads/master | awk '{print $1}')
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Could not resolve a unique nim-libp2p master commit"
+            exit 1
+          }
+          echo "Building nim-libp2p revision $REVISION"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: resolve-libp2p
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -37,7 +58,10 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
-          build-args: NODE=${{ matrix.node }}
+          build-args: |
+            NODE=${{ matrix.node }}
+            LIBP2P_REPOSITORY=${{ env.LIBP2P_REPOSITORY }}
+            LIBP2P_REF=${{ needs.resolve-libp2p.outputs.revision }}
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/${{ matrix.node }}:main

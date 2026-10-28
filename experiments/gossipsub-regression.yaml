@@ -1,0 +1,26 @@
+experiment: run-nodes
+# Startup includes image pulls. Duration begins after every pod has started.
+startup_timeout: 600
+duration: 1200
+poll_interval: 5
+nodes:
+  - name: bootstrap
+    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/bootstrap, tag: main}
+    count: 1
+    self_terminating: false
+    env: &node_config
+      TRANSPORT: TCP
+      PARTICIPANTS: 499
+      MESSAGE_ROUNDS: 3
+      DELIVERY_PERCENT: 99
+      SELF_CHECK_TIMEOUT_SECS: 1050
+      MAX_CONNECTIONS: 600
+  - name: gossipsub
+    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/gossipsub, tag: main}
+    count: 499
+    self_terminating: true
+    env:
+      <<: *node_config
+      BOOTSTRAP_HOST: bootstrap-0.nodes
+      STARTUP_JITTER_STEP_MS: 50
+      MAX_CONNECTIONS: 250
