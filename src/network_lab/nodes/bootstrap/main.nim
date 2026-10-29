@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
+import std/sets
 import chronos, chronicles
 import libp2p
 import results
@@ -11,7 +12,9 @@ import
 logScope:
   topics = "network-lab"
 
-const BootstrapStatusPollInterval = 1.seconds
+const
+  BootstrapStatusPollInterval = 1.seconds
+  FailureNotificationTimeout = 30.seconds
 
 proc monitorCoordinator(
     coordinator: Coordinator,
@@ -32,6 +35,12 @@ proc monitorCoordinator(
         expected = cfg.participants
       previousPhase = currentPhase
     if currentPhase == "failed":
+      let notificationDeadline = Moment.now() + FailureNotificationTimeout
+      while coordinator.failureNotified.len < cfg.participants and
+          Moment.now() < notificationDeadline and not shutdownSignal.finished():
+        await sleepAsync(BootstrapStatusPollInterval)
+      info "Failure notification finished",
+        notified = coordinator.failureNotified.len, expected = cfg.participants
       return err("Bootstrap observed failure: " & coordinator.failure)
     if currentPhase != "complete" and Moment.now() >= deadline:
       return err(

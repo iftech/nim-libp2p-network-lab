@@ -14,6 +14,7 @@ type
     signature: string
     peers: Table[int, PeerId]
     ready*, published*, verified*: HashSet[int]
+    failureNotified*: HashSet[int]
     failure*: string
 
   ControlCommand = enum
@@ -26,6 +27,7 @@ type
   ControlRequest = object
     command: ControlCommand
     index: int
+    reason: string
 
 proc newCoordinator*(expected: int, signature: string): Coordinator =
   Coordinator(expected: expected, signature: signature)
@@ -48,8 +50,8 @@ proc phase*(c: Coordinator): string =
 proc parseControlRequest(
     raw, signature: string, expected: int
 ): Result[ControlRequest, string] =
-  let parts = raw.split('|')
-  if parts.len != 3 or parts[2] != signature:
+  let parts = raw.split('|', maxsplit = 3)
+  if parts.len < 3 or parts[2] != signature:
     return err("invalid control request")
   var index: int
   try:
@@ -59,7 +61,11 @@ proc parseControlRequest(
   if index < 0 or index >= expected:
     return err("participant index out of range")
   try:
-    ok(ControlRequest(command: parseEnum[ControlCommand](parts[0]), index: index))
+    let command = parseEnum[ControlCommand](parts[0])
+    if parts.len == 4 and command != failed:
+      return err("unexpected control request reason")
+    ok(ControlRequest(command: command, index: index,
+      reason: (if parts.len == 4: parts[3] else: "")))
   except ValueError:
     err("unknown control request")
 
@@ -72,6 +78,10 @@ proc applyControlRequest(
   for existingIndex, existingPeer in c.peers:
     if existingPeer == peer and existingIndex != index:
       return err("peer already registered with another index")
+
+  if c.failure.len > 0:
+    c.peers[index] = peer
+    return ok("failed")
 
   case request.command
   of register:
@@ -87,8 +97,11 @@ proc applyControlRequest(
       return err("verified before all participants published")
     c.verified.incl(index)
   of failed:
-    c.failure = "participant " & $index & " reported failure"
-    error "Participant reported failure", index = index, peerId = peer
+    if c.failure.len == 0:
+      c.failure = "participant " & $index & " reported failure"
+      if request.reason.len > 0:
+        c.failure.add(": " & request.reason)
+      error "Participant reported failure", index = index, peerId = peer, reason = request.reason
   c.peers[index] = peer
   ok(c.phase())
 
@@ -106,18 +119,24 @@ proc handleControlStream(
 
     let responseResult = applyControlRequest(c, stream.peerId, requestResult.get())
     if responseResult.isErr:
-      c.failure = "control protocol error: " & responseResult.error
+      if c.failure.len == 0:
+        c.failure = "control protocol error: " & responseResult.error
       error "Control protocol error",
         peerId = stream.peerId, error = responseResult.error
       await stream.writeLp("failed")
       return
-    await stream.writeLp(responseResult.get())
+    if c.failure.len > 0:
+      await stream.writeLp("failed|" & c.failure)
+      c.failureNotified.incl(requestResult.get().index)
+    else:
+      await stream.writeLp(responseResult.get())
   except CancelledError as exc:
     raise exc
   except LPStreamError as exc:
     warn "Control stream failed", peerId = stream.peerId, error = exc.msg
   except CatchableError as exc:
-    c.failure = "control protocol error: " & exc.msg
+    if c.failure.len == 0:
+      c.failure = "control protocol error: " & exc.msg
     error "Control protocol error", peerId = stream.peerId, error = exc.msg
     try:
       await stream.writeLp("failed")
@@ -135,12 +154,14 @@ proc protocol*(c: Coordinator): LPProtocol =
   LPProtocol.new(@[ControlCodec], handle)
 
 proc exchange*(
-    switch: Switch, peer: PeerId, command: string, index: int, signature: string
+    switch: Switch, peer: PeerId, command: string, index: int, signature: string,
+    reason: string = ""
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
   var stream: Stream
   try:
     stream = await switch.dial(peer, ControlCodec)
-    await stream.writeLp(command & "|" & $index & "|" & signature)
+    let suffix = if reason.len > 0: "|" & reason[0 ..< min(reason.len, 400)] else: ""
+    await stream.writeLp(command & "|" & $index & "|" & signature & suffix)
     return ok(string.fromBytes(await stream.readLp(1024)))
   except CancelledError as exc:
     raise exc

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
-import std/[os, sequtils, sets, tables]
+import std/[os, sequtils, sets, strutils, tables]
 import chronos, chronicles
 import results
 import stew/byteutils
@@ -116,6 +116,8 @@ proc awaitPhase(
           nodeIndex = cfg.index, command = command, error = lastError
       elif phaseResult.get() == "failed":
         return Result[void, string].err("bootstrap reported experiment failure")
+      elif phaseResult.get().startsWith("failed|"):
+        return Result[void, string].err("bootstrap reported experiment failure: " & phaseResult.get()[7 .. ^1])
       elif phaseResult.get() == desired:
         return Result[void, string].ok()
       else:
@@ -381,7 +383,7 @@ proc reportPhaseFailure(
     error = message
   try:
     discard await exchange(
-      switch, bootstrapPeerId, "failed", cfg.index, cfg.configSignature()
+      switch, bootstrapPeerId, "failed", cfg.index, cfg.configSignature(), message
     )
       .wait(FailureReportTimeout)
   except CancelledError as exc:
