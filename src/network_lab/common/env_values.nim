@@ -43,16 +43,16 @@ proc getEnvInt*(
 proc getEnvPositiveInt*(name: string, defaultValue: int): Result[int, string] =
   getEnvInt(name, defaultValue, 1, int.high)
 
-proc getEnvSeqMultiaddress*(name: string): Result[seq[MultiAddress, string]] =
+proc getEnvSeqMultiaddress*(name: string): Result[seq[MultiAddress], string] =
   let value = getEnv(name)
   if value.len == 0:
-    return Result[seq[MultiAddress, string]].ok(@[])
+    return Result[seq[MultiAddress], string].ok(@[])
   let addressResult = MultiAddress.init(value)
   if addressResult.isErr:
-    return Result[seq[MultiAddress, string]].err(
+    return Result[seq[MultiAddress], string].err(
       "Invalid " & name & ": " & value & ": " & $addressResult.error
     )
-  Result[seq[MultiAddress, string]].ok(@[addressResult.get()])
+  Result[seq[MultiAddress], string].ok(@[addressResult.get()])
 
 proc parseMultiAddress(name, value: string): Result[MultiAddress, string] =
   let addressResult = MultiAddress.init(value)

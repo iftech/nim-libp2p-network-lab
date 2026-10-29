@@ -4,6 +4,7 @@
 import std/random
 
 import chronicles
+import results
 import network_lab/common/env_values
 
 randomize()
