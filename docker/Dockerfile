@@ -38,6 +38,7 @@ ARG NODE
 RUN test -n "$NODE" \
     && test -f "src/network_lab/nodes/${NODE}/main.nim" \
     && nim c -d:release --threads:on --path:/opt/nim-libp2p \
+      -d:chronicles_log_level=DEBUG \
       -d:Libp2pRevision="$(git -C /opt/nim-libp2p rev-parse HEAD)" \
       --out:/out/network-node "src/network_lab/nodes/${NODE}/main.nim"
 
