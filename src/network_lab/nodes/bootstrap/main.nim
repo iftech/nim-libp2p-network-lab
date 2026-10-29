@@ -19,8 +19,6 @@ proc waitForRequestedShutdown(
     return ok()
   except CancelledError as exc:
     raise exc
-  except CatchableError as exc:
-    return err(exc.msg)
 
 proc monitorCoordinator(
     coordinator: Coordinator,
@@ -58,8 +56,6 @@ proc monitorCoordinator(
     shutdownCompletionResult = await shutdownResult
   except CancelledError as exc:
     raise exc
-  except CatchableError as exc:
-    return err(exc.msg)
   if shutdownCompletionResult.isErr:
     return err(shutdownCompletionResult.error)
   if coordinator.phase() != "complete":

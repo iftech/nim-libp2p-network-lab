@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
-import std/[hashes, options, tables]
+import std/[hashes, tables]
 import chronos, results
 import stew/byteutils
 import libp2p
@@ -31,7 +31,9 @@ proc buildSwitch*(address: MultiAddress): Result[Switch, string] {.raises: [].} 
   except LPError as exc:
     Result[Switch, string].err("Failed to build switch: " & exc.msg)
 
-proc startSwitch*(switch: Switch): Future[Result[void, string]] {.async.} =
+proc startSwitch*(
+    switch: Switch
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   try:
     await switch.start()
     return Result[void, string].ok()

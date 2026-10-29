@@ -136,7 +136,7 @@ proc protocol*(c: Coordinator): LPProtocol =
 
 proc exchange*(
     switch: Switch, peer: PeerId, command: string, index: int, signature: string
-): Future[Result[string, string]] {.async.} =
+): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
   var stream: Stream
   try:
     stream = await switch.dial(peer, ControlCodec)

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
-import std/[options, os, strutils]
+import std/[os, strutils]
 from std/net import getPrimaryIPAddr
 import results
 import stew/byteutils
@@ -24,8 +24,8 @@ type
   SwitchEnvValues* = object
     transport*: string
     maxConnections*: int
-    announcedAddress*: Option[MultiAddress]
-    privateKey*: Option[PrivateKey]
+    announcedAddress*: Opt[MultiAddress]
+    privateKey*: Opt[PrivateKey]
 
 proc getEnvInt*(
     name: string, defaultValue, minValue, maxValue: int
@@ -145,7 +145,7 @@ proc loadEnvSwitchValues*(): Result[SwitchEnvValues, string] =
     let addressResult = parseMultiAddress("ANNOUNCE_ADDR", announcedAddress)
     if addressResult.isErr:
       return err(addressResult.error)
-    values.announcedAddress = some(addressResult.get())
+    values.announcedAddress = Opt.some(addressResult.get())
 
   let privateKeyHex = getEnv("PRIVATE_KEY")
   if privateKeyHex.len > 0:
@@ -153,7 +153,7 @@ proc loadEnvSwitchValues*(): Result[SwitchEnvValues, string] =
       let keyResult = PrivateKey.init(hexToSeqByte(privateKeyHex))
       if keyResult.isErr:
         return err("Invalid PRIVATE_KEY: " & $keyResult.error)
-      values.privateKey = some(keyResult.get())
+      values.privateKey = Opt.some(keyResult.get())
     except CatchableError as exc:
       return err("Invalid PRIVATE_KEY: " & exc.msg)
   ok(values)
