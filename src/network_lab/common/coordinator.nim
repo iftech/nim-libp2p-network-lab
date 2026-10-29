@@ -16,8 +16,15 @@ type
     ready*, published*, verified*: HashSet[int]
     failure*: string
 
+  ControlCommand* = enum
+    Register = "register"
+    Ready = "ready"
+    Published = "published"
+    Verified = "verified"
+    Failed = "failed"
+
   ControlRequest = object
-    command: string
+    command: ControlCommand
     index: int
 
 proc newCoordinator*(expected: int, signature: string): Coordinator =
@@ -129,7 +136,7 @@ proc protocol*(c: Coordinator): LPProtocol =
 
 proc exchange*(
     switch: Switch, peer: PeerId, command: string, index: int, signature: string
-): Future[Result[string, string]] {.async.} =
+): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
   var stream: Stream
   try:
     stream = await switch.dial(peer, ControlCodec)

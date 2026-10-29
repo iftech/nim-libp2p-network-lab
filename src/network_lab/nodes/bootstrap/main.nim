@@ -19,8 +19,6 @@ proc waitForRequestedShutdown(
     return ok()
   except CancelledError as exc:
     raise exc
-  except CatchableError as exc:
-    return err(exc.msg)
 
 proc monitorCoordinator(
     coordinator: Coordinator,
@@ -43,7 +41,14 @@ proc monitorCoordinator(
     if currentPhase == "failed":
       return err("Bootstrap observed failure: " & coordinator.failure)
     if currentPhase != "complete" and Moment.now() >= deadline:
-      return err("Bootstrap coordination timed out in phase " & currentPhase)
+      return err(
+        "Bootstrap coordination timed out in phase " & currentPhase &
+        ": registered=" & $coordinator.registered() &
+        ", ready=" & $coordinator.ready.len &
+        ", published=" & $coordinator.published.len &
+        ", verified=" & $coordinator.verified.len &
+        ", expected=" & $cfg.participants
+      )
     await sleepAsync(BootstrapStatusPollInterval)
 
   var shutdownCompletionResult: Result[void, string]
@@ -51,12 +56,13 @@ proc monitorCoordinator(
     shutdownCompletionResult = await shutdownResult
   except CancelledError as exc:
     raise exc
-  except CatchableError as exc:
-    return err(exc.msg)
   if shutdownCompletionResult.isErr:
     return err(shutdownCompletionResult.error)
   if coordinator.phase() != "complete":
-    return err("Bootstrap stopped before experiment completed")
+    return err(
+      "Bootstrap stopped before experiment completed in phase " &
+        coordinator.phase()
+    )
   ok()
 
 proc main*(

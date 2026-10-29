@@ -25,8 +25,8 @@ type
   SwitchEnvValues* = object
     transport*: string
     maxConnections*: int
-    announcedAddress*: Option[MultiAddress]
-    privateKey*: Option[PrivateKey]
+    announcedAddress*: Opt[MultiAddress]
+    privateKey*: Opt[PrivateKey]
 
 proc getEnvInt*(
     name: string, defaultValue, minValue, maxValue: int
