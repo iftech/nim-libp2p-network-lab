@@ -109,7 +109,7 @@ class NodeProcesses(unittest.TestCase):
     def test_unreachable_bootstrap_fails(self):
         env = {**os.environ, "TRANSPORT": "TCP", "PARTICIPANTS": "2", "NODE_INDEX": "0",
                "LISTEN_ADDR": "/ip4/127.0.0.1/tcp/0",
-               "BOOTSTRAP_ADDR": "/ip4/127.0.0.1/tcp/1", "SELF_CHECK_TIMEOUT_SECS": "3",
+               "BOOTSTRAP_ADDR": "/ip4/127.0.0.1/tcp/1/p2p/12D3KooWLbteJ8m8KoVktnMLH3oYKJcJRmrNdcKpk88vfZ5x5wSq", "SELF_CHECK_TIMEOUT_SECS": "3",
                "STARTUP_JITTER_STEP_MS": "0"}
         result = subprocess.run([GOSSIPSUB], env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 1)

@@ -16,6 +16,8 @@ proc waitShutdownSignal*(): Future[Result[void, string]] {.
     let completedSignalFut = await one(sigIntFut, sigTermFut)
     await completedSignalFut
     return ok()
+  except CancelledError as e:
+    raise e
   except AsyncError as e:
     return err("unexpected AsyncError in waitShutdownSignal: " & e.msg)
   finally:

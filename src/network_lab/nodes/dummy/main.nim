@@ -7,15 +7,17 @@ import chronicles
 import results
 import network_lab/common/env_values
 
+const DefaultFailurePercent = 10
+
 randomize()
 
-let percentageResult = getEnvInt("FAILURE_PERCENT", 10, 0, 100)
+let percentageResult = getEnvInt("FAILURE_PERCENT", DefaultFailurePercent, 0, 100)
 let percentage =
   if percentageResult.isOk:
     percentageResult.get()
   else:
     warn "Invalid FAILURE_PERCENT; using default", error = percentageResult.error
-    10
+    DefaultFailurePercent
 if rand(99) < percentage:
   let code = rand(1 .. 255)
   error "Exiting with error code", code = code

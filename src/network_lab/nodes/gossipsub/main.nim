@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
-import std/[sets, tables]
+import std/[os, sequtils, sets, tables]
 import chronos, chronicles
 import results
 import stew/byteutils
@@ -26,7 +26,6 @@ const
   DeliveryCheckInterval = 1.seconds
   DeliveryVerificationTimeout = 60.seconds
   FailureReportTimeout = 5.seconds
-  PublishStaggerStepMilliseconds = 50
   NoDelay = 0.milliseconds
   KeepaliveInterval = 12.seconds
   KeepaliveBatchDelay = 200.milliseconds
@@ -75,7 +74,7 @@ proc keepPeersAlive(
   while not state.publishingStarted:
     var batch: seq[Future[void]]
 
-    for peer in switch.connManager.connectedPeers():
+    for peer in toSeq(switch.connManager.connectedPeers()):
       if state.publishingStarted:
         break
 
@@ -111,6 +110,8 @@ proc awaitPhase(
         .wait(CoordinatorRequestTimeout)
       if phaseResult.isErr:
         lastError = phaseResult.error
+        warn "Coordinator request failed; retrying",
+          nodeIndex = cfg.index, command = command, error = lastError
       elif phaseResult.get() == "failed":
         return Result[void, string].err("bootstrap reported experiment failure")
       elif phaseResult.get() == desired:
@@ -136,14 +137,16 @@ type BootstrapConnection = object
 proc connectToBootstrap(
     switch: Switch, cfg: NodeConfig, deadline: Moment
 ): Future[Result[BootstrapConnection, string]] {.async.} =
-  let overrideAddressesResult = getEnvSeqMultiaddress("BOOTSTRAP_ADDR")
-  if overrideAddressesResult.isErr:
-    return Result[BootstrapConnection, string].err(overrideAddressesResult.error)
-  let overrideAddresses = overrideAddressesResult.get()
-  var candidates = overrideAddresses
+  let rawOverride = getEnv("BOOTSTRAP_ADDR")
+  var candidates: seq[MultiAddress]
+  if rawOverride.len > 0:
+    let parsed = getEnvBootstrapAddress()
+    if parsed.isErr:
+      return Result[BootstrapConnection, string].err(parsed.error)
+    candidates.add(MultiAddress.init(rawOverride).get())
   let target =
-    if overrideAddresses.len > 0:
-      $overrideAddresses[0]
+    if rawOverride.len > 0:
+      rawOverride
     else:
       cfg.bootstrapHost & ":" & $cfg.bootstrapPort
 
@@ -158,7 +161,7 @@ proc connectToBootstrap(
   while Moment.now() < deadline and not connected:
     inc connection.attempts
     try:
-      if overrideAddresses.len == 0:
+      if rawOverride.len == 0:
         candidates.setLen(0)
         for address in resolveTAddress(target):
           if cfg.transport == "QUIC":
@@ -285,7 +288,7 @@ proc publishMessages(
     gossip: GossipSub, cfg: NodeConfig, state: Received
 ): Future[Result[void, string]] {.async.} =
   try:
-    await sleepAsync((cfg.index * PublishStaggerStepMilliseconds).milliseconds)
+    await sleepAsync((cfg.index * cfg.staggerMs).milliseconds)
     for round in 0 ..< cfg.rounds:
       let payload = message(state.runId, cfg.index, round)
       let peers = await gossip.publish(cfg.topic, payload.toBytes())
@@ -379,6 +382,8 @@ proc reportPhaseFailure(
       switch, bootstrapPeerId, "failed", cfg.index, cfg.configSignature()
     )
       .wait(FailureReportTimeout)
+  except CancelledError as exc:
+    raise exc
   except CatchableError:
     discard
 
@@ -453,12 +458,13 @@ proc run(): Future[int] {.async.} =
   gossip.addValidator([cfg.topic], makeValidator(cfg))
   switch.mount(gossip)
 
+  defer:
+    await switch.stop()
+
   let startResult = await startSwitch(switch)
   if startResult.isErr:
     error "Cannot start GossipSub switch", error = startResult.error
     return 1
-  defer:
-    await switch.stop()
 
   info "GossipSub node started",
     nodeIndex = cfg.index,
@@ -473,7 +479,7 @@ proc run(): Future[int] {.async.} =
 
   let experimentResult = await runExperiment(switch, cfg, base, gossip, state, deadline)
   if experimentResult.isErr:
-    error "GossipSub self-check failed", error = experimentResult.error
+    error "GossipSub node failed", error = experimentResult.error
     return 1
   return 0
 

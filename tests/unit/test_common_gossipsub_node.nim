@@ -73,6 +73,10 @@ suite "bootstrap address parsing":
     let addressResult = parseBootstrapAddress("/ip4/127.0.0.1/tcp/9000")
     check addressResult.isErr
 
+  test "environment rejects a transport address without a peer ID":
+    withEnvironmentValue("BOOTSTRAP_ADDR", "/ip4/127.0.0.1/tcp/9000") do():
+      check getEnvBootstrapAddress().isErr
+
   test "extracts the peer ID and transport address":
     let addressResult =
       parseBootstrapAddress("/ip4/127.0.0.1/tcp/9000/p2p/" & TestPeerId)

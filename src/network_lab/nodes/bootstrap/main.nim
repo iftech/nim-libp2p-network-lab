@@ -43,7 +43,14 @@ proc monitorCoordinator(
     if currentPhase == "failed":
       return err("Bootstrap observed failure: " & coordinator.failure)
     if currentPhase != "complete" and Moment.now() >= deadline:
-      return err("Bootstrap coordination timed out in phase " & currentPhase)
+      return err(
+        "Bootstrap coordination timed out in phase " & currentPhase & ": registered=" &
+          $coordinator.registered() & ", ready=" & $coordinator.ready.len &
+          ", published=" & $coordinator.published.len & ", verified=" &
+          $coordinator.verified.len & ", expected=" & $cfg.participants
+      )
+    # Coordinator phase changes have no notification; polling also bounds shutdown
+    # detection latency to one status interval.
     await sleepAsync(BootstrapStatusPollInterval)
 
   var shutdownCompletionResult: Result[void, string]
@@ -56,21 +63,32 @@ proc monitorCoordinator(
   if shutdownCompletionResult.isErr:
     return err(shutdownCompletionResult.error)
   if coordinator.phase() != "complete":
-    return err("Bootstrap stopped before experiment completed")
+    return err(
+      "Bootstrap stopped before experiment completed in phase " & coordinator.phase()
+    )
   ok()
 
 proc main*(
     started: Future[MultiAddress] = nil, shutdownRequested: AsyncEvent = nil
 ): Future[int] {.async.} =
+  defer:
+    if started != nil and not started.finished():
+      started.fail(newException(IOError, "Bootstrap startup did not complete"))
+
+  template startupFailure(message: string) =
+    if started != nil and not started.finished():
+      started.fail(newException(IOError, message))
+    return 1
+
   let configResult = loadEnvConfig(true)
   if configResult.isErr:
     error "Invalid bootstrap configuration", error = configResult.error
-    return 1
+    startupFailure(configResult.error)
   let cfg = configResult.get()
   let switchResult = buildSwitch(cfg.listen)
   if switchResult.isErr:
     error "Cannot build bootstrap switch", error = switchResult.error
-    return 1
+    startupFailure(switchResult.error)
 
   let switch = switchResult.get()
   defer:
@@ -81,12 +99,12 @@ proc main*(
   let startResult = await startSwitch(switch)
   if startResult.isErr:
     error "Cannot start bootstrap switch", error = startResult.error
-    return 1
+    startupFailure(startResult.error)
 
   let addressesResult = switch.peerInfo.fullAddrs()
   if addressesResult.isErr or addressesResult.get().len == 0:
     error "Bootstrap has no advertised address"
-    return 1
+    startupFailure("Bootstrap has no advertised address")
 
   info "Bootstrap started",
     peerId = switch.peerInfo.peerId,

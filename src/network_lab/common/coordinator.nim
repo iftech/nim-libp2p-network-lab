@@ -16,8 +16,15 @@ type
     ready*, published*, verified*: HashSet[int]
     failure*: string
 
+  ControlCommand = enum
+    register = "register"
+    ready = "ready"
+    published = "published"
+    verified = "verified"
+    failed = "failed"
+
   ControlRequest = object
-    command: string
+    command: ControlCommand
     index: int
 
 proc newCoordinator*(expected: int, signature: string): Coordinator =
@@ -51,9 +58,10 @@ proc parseControlRequest(
     return err("invalid participant index")
   if index < 0 or index >= expected:
     return err("participant index out of range")
-  if parts[0] notin ["register", "ready", "published", "verified", "failed"]:
-    return err("unknown control request")
-  ok(ControlRequest(command: parts[0], index: index))
+  try:
+    ok(ControlRequest(command: parseEnum[ControlCommand](parts[0]), index: index))
+  except ValueError:
+    err("unknown control request")
 
 proc applyControlRequest(
     c: Coordinator, peer: PeerId, request: ControlRequest
@@ -66,23 +74,21 @@ proc applyControlRequest(
       return err("peer already registered with another index")
 
   case request.command
-  of "register":
+  of register:
     discard
-  of "ready":
+  of ready:
     c.ready.incl(index)
-  of "published":
+  of published:
     if c.ready.len != c.expected:
       return err("published before all participants were ready")
     c.published.incl(index)
-  of "verified":
+  of verified:
     if c.published.len != c.expected:
       return err("verified before all participants published")
     c.verified.incl(index)
-  of "failed":
+  of failed:
     c.failure = "participant " & $index & " reported failure"
     error "Participant reported failure", index = index, peerId = peer
-  else:
-    return err("unknown control request")
   c.peers[index] = peer
   ok(c.phase())
 
@@ -93,8 +99,7 @@ proc handleControlStream(
     let raw = string.fromBytes(await stream.readLp(1024))
     let requestResult = parseControlRequest(raw, c.signature, c.expected)
     if requestResult.isErr:
-      c.failure = "control protocol error: " & requestResult.error
-      error "Control protocol error",
+      warn "Rejected control request",
         peerId = stream.peerId, error = requestResult.error
       await stream.writeLp("failed")
       return
@@ -116,6 +121,8 @@ proc handleControlStream(
     error "Control protocol error", peerId = stream.peerId, error = exc.msg
     try:
       await stream.writeLp("failed")
+    except CancelledError as exc:
+      raise exc
     except CatchableError:
       discard
   finally:
