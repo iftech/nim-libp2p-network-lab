@@ -2,8 +2,9 @@
 # Copyright (c) Status Research & Development GmbH
 
 import chronos
+import results
 
-proc waitShutdownSignal*() {.async: (raises: [CancelledError]).} =
+proc waitShutdownSignal*(): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   ## Wait until the process receives SIGINT or SIGTERM.
   let
     sigIntFut = waitSignal(SIGINT)
@@ -12,8 +13,9 @@ proc waitShutdownSignal*() {.async: (raises: [CancelledError]).} =
   try:
     let completedSignalFut = await one(sigIntFut, sigTermFut)
     await completedSignalFut
+    return ok()
   except AsyncError as e:
-    raiseAssert "unexpected AsyncError in waitShutdownSignal: " & e.msg
+    return err("unexpected AsyncError in waitShutdownSignal: " & e.msg)
   finally:
     await noCancel(sigIntFut.cancelAndWait())
     await noCancel(sigTermFut.cancelAndWait())
