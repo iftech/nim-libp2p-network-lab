@@ -47,6 +47,14 @@ suite "positive integer environment parsing":
       check getEnvPositiveInt(TestEnvironmentVariable, 17).isErr
 
 suite "configuration parsing":
+  test "mesh minimum must fit the number of remote participants":
+    withEnvironmentValue("TRANSPORT", "TCP") do():
+      withEnvironmentValue("PARTICIPANTS", "3") do():
+        withEnvironmentValue("MESH_MIN_PEERS", "2") do():
+          check loadEnvConfig(false).isOk
+        withEnvironmentValue("MESH_MIN_PEERS", "3") do():
+          check loadEnvConfig(false).isErr
+
   test "default listen address is valid for TCP and QUIC":
     let original = getEnv("LISTEN_ADDR")
     let defined = existsEnv("LISTEN_ADDR")

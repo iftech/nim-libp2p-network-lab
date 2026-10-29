@@ -18,7 +18,7 @@ type
     topic*: string
     bootstrapHost*: string
     index*, participants*, rounds*, threshold*, timeoutSeconds*, staggerMs*,
-      bootstrapPort*: int
+      bootstrapPort*, meshMinPeers*: int
     listen*: MultiAddress
 
   SwitchEnvValues* = object
@@ -102,6 +102,8 @@ proc loadEnvIntegerConfig(cfg: var NodeConfig, bootstrap: bool): Result[void, st
   setInt(threshold, "DELIVERY_PERCENT", 99, 1, 100)
   setInt(timeoutSeconds, "SELF_CHECK_TIMEOUT_SECS", 900, 1, 3600)
   setInt(staggerMs, "STARTUP_JITTER_STEP_MS", 50, 0, 10000)
+  # Zero selects GossipSub's dLow, capped by the number of remote participants.
+  setInt(meshMinPeers, "MESH_MIN_PEERS", 0, 0, cfg.participants - 1)
   ok()
 
 proc loadEnvConfig*(bootstrap: bool): Result[NodeConfig, string] =

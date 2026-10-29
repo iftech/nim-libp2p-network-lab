@@ -9,8 +9,10 @@ import libp2p
 import libp2p/protocols/[kademlia, ping]
 import libp2p/protocols/pubsub/rpc/messages
 import
-  network_lab/common/
-    [coordinator, env_values, failure_context, gossipsub_node, regression_messages]
+  network_lab/common/[
+    coordinator, env_values, failure_context, gossipsub_node, mesh_readiness,
+    regression_messages,
+  ]
 
 logScope:
   topics = "network-lab"
@@ -31,6 +33,81 @@ const
   NoDelay = 0.milliseconds
   KeepaliveInterval = 12.seconds
   KeepaliveBatchDelay = 200.milliseconds
+  MeshCheckInterval = 100.milliseconds
+  MeshStableInterval = 10.seconds
+
+type MeshHealth = ref object
+  readiness: MeshReadiness
+
+proc observeControl(
+    cfg: NodeConfig, peer: PubSubPeer, msg: var messages.RPCMsg, direction: string
+) {.gcsafe, raises: [].} =
+  if msg.control.isSome:
+    let control = msg.control.get()
+    for graft in control.graft:
+      if graft.topicID == cfg.topic:
+        info "GossipSub GRAFT",
+          nodeIndex = cfg.index,
+          direction,
+          peerId = $peer.peerId,
+          score = peer.score,
+          topic = graft.topicID
+    for prune in control.prune:
+      if prune.topicID == cfg.topic:
+        info "GossipSub PRUNE",
+          nodeIndex = cfg.index,
+          direction,
+          peerId = $peer.peerId,
+          score = peer.score,
+          topic = prune.topicID,
+          backoff = prune.backoff
+
+proc monitorMesh(
+    gossip: GossipSub, cfg: NodeConfig, health: MeshHealth, minimum: int
+) {.async.} =
+  var previous = initTable[PeerId, float64]()
+  var nextScores = Moment.now() + 10.seconds
+  while true:
+    let now = Moment.now()
+    var current = initTable[PeerId, float64]()
+    for peer in gossip.mesh.getOrDefault(cfg.topic):
+      current[peer.peerId] = peer.score
+      if peer.peerId notin previous:
+        info "GossipSub mesh peer added",
+          nodeIndex = cfg.index,
+          peerId = $peer.peerId,
+          score = peer.score,
+          meshPeers = gossip.mesh.getOrDefault(cfg.topic).len
+    for peer, score in previous:
+      if peer notin current:
+        info "GossipSub mesh peer removed",
+          nodeIndex = cfg.index,
+          peerId = $peer,
+          lastScore = score,
+          meshPeers = current.len
+    previous = current
+    if now >= nextScores:
+      for peer, score in current:
+        info "GossipSub mesh peer score",
+          nodeIndex = cfg.index, peerId = $peer, score, meshPeers = current.len
+      nextScores = now + 10.seconds
+    let wasStable = health.readiness.stable
+    let wasReady = health.readiness.ready
+    health.readiness.observe(current.len, minimum, now, MeshStableInterval)
+    if not health.readiness.stable:
+      if wasStable:
+        info "GossipSub mesh stability reset",
+          nodeIndex = cfg.index, meshPeers = current.len, required = minimum
+    elif not wasStable:
+      info "GossipSub mesh stability started",
+        nodeIndex = cfg.index, meshPeers = current.len, required = minimum
+    elif not wasReady and health.readiness.ready:
+      info "GossipSub mesh stable",
+        nodeIndex = cfg.index,
+        meshPeers = current.len,
+        required = minimum,
+        stableSeconds = 10
+    await sleepAsync(MeshCheckInterval)
 
 proc makeHandler(state: Received, cfg: NodeConfig): TopicHandler =
   return proc(topic: string, data: seq[byte]) {.async, gcsafe.} =
@@ -117,7 +194,9 @@ proc awaitPhase(
       elif phaseResult.get() == "failed":
         return Result[void, string].err("bootstrap reported experiment failure")
       elif phaseResult.get().startsWith("failed|"):
-        return Result[void, string].err("bootstrap reported experiment failure: " & phaseResult.get()[7 .. ^1])
+        return Result[void, string].err(
+          "bootstrap reported experiment failure: " & phaseResult.get()[7 .. ^1]
+        )
       elif phaseResult.get() == desired:
         return Result[void, string].ok()
       else:
@@ -256,11 +335,12 @@ proc discoverParticipants(
     base: tuple[kad: KadDHT, ping: Ping],
     gossip: GossipSub,
     state: Received,
+    health: MeshHealth,
     connection: BootstrapConnection,
     deadline: Moment,
 ): Future[Result[void, string]] {.async.} =
   try:
-    while Moment.now() < deadline and gossip.mesh.getOrDefault(cfg.topic).len == 0:
+    while Moment.now() < deadline and not health.readiness.ready:
       try:
         await base.kad.bootstrap(forceRefresh = true).wait(KadBootstrapTimeout)
       except AsyncTimeoutError:
@@ -269,11 +349,11 @@ proc discoverParticipants(
         nodeIndex = cfg.index,
         topicPeers = gossip.remotePeerCount(cfg.topic),
         meshPeers = gossip.mesh.getOrDefault(cfg.topic).len
-      if gossip.mesh.getOrDefault(cfg.topic).len == 0:
+      if not health.readiness.ready:
         await sleepAsync(PeerDiscoveryRetryDelay)
-    if gossip.mesh.getOrDefault(cfg.topic).len == 0:
+    if not health.readiness.ready:
       return Result[void, string].err(
-        "No remote GossipSub participant discovered before deadline"
+        "GossipSub mesh did not reach stable readiness before deadline"
       )
     let phaseResult = await awaitPhase(
       switch, connection.peerId, cfg, state, "ready", "publish", deadline
@@ -408,6 +488,15 @@ proc runExperiment(
   let connection = connectionResult.get()
   state.runId = $connection.peerId
 
+  let minimum =
+    if cfg.meshMinPeers == 0:
+      min(gossip.parameters.dLow, cfg.participants - 1)
+    else:
+      cfg.meshMinPeers
+  let health = MeshHealth()
+  let monitor = monitorMesh(gossip, cfg, health, minimum)
+  defer:
+    await noCancel monitor.cancelAndWait()
   let keepalive = keepPeersAlive(switch, base.ping, state)
   defer:
     await noCancel keepalive.cancelAndWait()
@@ -419,8 +508,9 @@ proc runExperiment(
     await reportPhaseFailure(switch, cfg, connection.peerId, registrationResult.error)
     return Result[void, string].err(registrationResult.error)
 
-  let discoveryResult =
-    await discoverParticipants(switch, cfg, base, gossip, state, connection, deadline)
+  let discoveryResult = await discoverParticipants(
+    switch, cfg, base, gossip, state, health, connection, deadline
+  )
   if discoveryResult.isErr:
     recordFailure("gossipsub", "discovery", "discovery", discoveryResult.error)
     await reportPhaseFailure(switch, cfg, connection.peerId, discoveryResult.error)
@@ -469,6 +559,14 @@ proc run(): Future[int] {.async.} =
 
   gossip.subscribe(cfg.topic, makeHandler(state, cfg))
   gossip.addValidator([cfg.topic], makeValidator(cfg))
+  gossip.addObserver(
+    PubSubObserver(
+      onRecv: proc(peer: PubSubPeer, msg: var messages.RPCMsg) {.gcsafe, raises: [].} =
+        observeControl(cfg, peer, msg, "received"),
+      onSend: proc(peer: PubSubPeer, msg: var messages.RPCMsg) {.gcsafe, raises: [].} =
+        observeControl(cfg, peer, msg, "sent"),
+    )
+  )
   switch.mount(gossip)
 
   defer:

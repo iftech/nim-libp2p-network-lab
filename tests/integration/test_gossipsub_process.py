@@ -51,7 +51,11 @@ class NodeProcesses(unittest.TestCase):
                 self.assertEqual([boot_code, *codes], [0] * (count + 1))
                 for log in files[1:]:
                     log.flush()
-                    self.assertIn("GossipSub self-check passed", Path(log.name).read_text())
+                    output = Path(log.name).read_text()
+                    self.assertIn("GossipSub self-check passed", output)
+                    self.assertIn("GossipSub mesh stable", output)
+                    self.assertLess(output.index("GossipSub mesh stable"),
+                                    output.index("All participants ready"))
             except Exception:
                 for log in files:
                     log.flush()
