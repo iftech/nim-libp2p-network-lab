@@ -24,11 +24,15 @@ proc failurePropagation() {.async.} =
     let signature = "TCP,network-lab-regression,3,3,99,unknown"
     for i, client in clients:
       doAssert (await exchange(client, peer, "register", i, signature)).get() == "ready"
-    let first = await exchange(clients[0], peer, "failed", 0, signature, "delivery below threshold | details")
-    doAssert first.get() == "failed|participant 0 reported failure: delivery below threshold | details"
+    let first = await exchange(
+      clients[0], peer, "failed", 0, signature, "delivery below threshold | details"
+    )
+    doAssert first.get() ==
+      "failed|participant 0 reported failure: delivery below threshold | details"
     await sleepAsync(2.seconds)
     doAssert not boot.finished()
-    let second = await exchange(clients[1], peer, "failed", 1, signature, "secondary failure")
+    let second =
+      await exchange(clients[1], peer, "failed", 1, signature, "secondary failure")
     doAssert second.get() == first.get()
     let third = await exchange(clients[2], peer, "ready", 2, signature)
     doAssert third.get() == first.get()
@@ -47,8 +51,10 @@ suite "coordinator failure propagation":
       old.add((existsEnv(key), getEnv(key)))
     defer:
       for i, key in keys:
-        if old[i][0]: putEnv(key, old[i][1])
-        else: delEnv(key)
+        if old[i][0]:
+          putEnv(key, old[i][1])
+        else:
+          delEnv(key)
     putEnv("TRANSPORT", "TCP")
     putEnv("PARTICIPANTS", "3")
     putEnv("LISTEN_ADDR", "/ip4/127.0.0.1/tcp/0")

@@ -64,8 +64,12 @@ proc parseControlRequest(
     let command = parseEnum[ControlCommand](parts[0])
     if parts.len == 4 and command != failed:
       return err("unexpected control request reason")
-    ok(ControlRequest(command: command, index: index,
-      reason: (if parts.len == 4: parts[3] else: "")))
+    ok(
+      ControlRequest(
+        command: command, index: index, reason: (if parts.len == 4: parts[3]
+        else: "")
+      )
+    )
   except ValueError:
     err("unknown control request")
 
@@ -101,7 +105,8 @@ proc applyControlRequest(
       c.failure = "participant " & $index & " reported failure"
       if request.reason.len > 0:
         c.failure.add(": " & request.reason)
-      error "Participant reported failure", index = index, peerId = peer, reason = request.reason
+      error "Participant reported failure",
+        index = index, peerId = peer, reason = request.reason
   c.peers[index] = peer
   ok(c.phase())
 
@@ -154,13 +159,21 @@ proc protocol*(c: Coordinator): LPProtocol =
   LPProtocol.new(@[ControlCodec], handle)
 
 proc exchange*(
-    switch: Switch, peer: PeerId, command: string, index: int, signature: string,
-    reason: string = ""
+    switch: Switch,
+    peer: PeerId,
+    command: string,
+    index: int,
+    signature: string,
+    reason: string = "",
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
   var stream: Stream
   try:
     stream = await switch.dial(peer, ControlCodec)
-    let suffix = if reason.len > 0: "|" & reason[0 ..< min(reason.len, 400)] else: ""
+    let suffix =
+      if reason.len > 0:
+        "|" & reason[0 ..< min(reason.len, 400)]
+      else:
+        ""
     await stream.writeLp(command & "|" & $index & "|" & signature & suffix)
     return ok(string.fromBytes(await stream.readLp(1024)))
   except CancelledError as exc:
