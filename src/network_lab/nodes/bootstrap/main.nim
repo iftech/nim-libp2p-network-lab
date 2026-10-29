@@ -4,7 +4,7 @@
 import chronos, chronicles
 import libp2p
 import results
-import network_lab/common/[coordinator, gossipsub_node, shutdown]
+import network_lab/common/[coordinator, env_values, gossipsub_node, shutdown]
 
 logScope:
   topics = "network-lab"
@@ -43,9 +43,7 @@ proc monitorCoordinator(
     if currentPhase == "failed":
       return err("Bootstrap observed failure: " & coordinator.failure)
     if currentPhase != "complete" and Moment.now() >= deadline:
-      return err(
-        "Bootstrap coordination timed out in phase " & currentPhase
-      )
+      return err("Bootstrap coordination timed out in phase " & currentPhase)
     await sleepAsync(BootstrapStatusPollInterval)
 
   var shutdownCompletionResult: Result[void, string]
@@ -64,7 +62,7 @@ proc monitorCoordinator(
 proc main*(
     started: Future[MultiAddress] = nil, shutdownRequested: AsyncEvent = nil
 ): Future[int] {.async.} =
-  let configResult = loadConfig(true)
+  let configResult = loadEnvConfig(true)
   if configResult.isErr:
     error "Invalid bootstrap configuration", error = configResult.error
     return 1
@@ -106,7 +104,8 @@ proc main*(
   defer:
     await noCancel shutdownResult.cancelAndWait()
   let deadline = Moment.now() + cfg.timeoutSeconds.seconds
-  let monitorResult = await monitorCoordinator(coordinator, cfg, shutdownResult, deadline)
+  let monitorResult =
+    await monitorCoordinator(coordinator, cfg, shutdownResult, deadline)
   if monitorResult.isErr:
     error "Bootstrap coordination failed", reason = monitorResult.error
     return 1

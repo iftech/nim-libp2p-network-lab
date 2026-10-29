@@ -4,7 +4,9 @@
 import chronos
 import results
 
-proc waitShutdownSignal*(): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
+proc waitShutdownSignal*(): Future[Result[void, string]] {.
+    async: (raises: [CancelledError])
+.} =
   ## Wait until the process receives SIGINT or SIGTERM.
   let
     sigIntFut = waitSignal(SIGINT)

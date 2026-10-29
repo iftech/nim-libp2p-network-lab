@@ -2,8 +2,7 @@
 # Copyright (c) Status Research & Development GmbH
 
 import std/[sets, strutils, tables]
-import chronos, chronicles
-import results
+import chronos, chronicles, results
 import stew/byteutils
 import libp2p
 
@@ -16,6 +15,7 @@ type
     peers: Table[int, PeerId]
     ready*, published*, verified*: HashSet[int]
     failure*: string
+
   ControlRequest = object
     command: string
     index: int
@@ -86,20 +86,24 @@ proc applyControlRequest(
   c.peers[index] = peer
   ok(c.phase())
 
-proc handleControlStream(c: Coordinator, stream: Stream) {.async: (raises: [CancelledError]).} =
+proc handleControlStream(
+    c: Coordinator, stream: Stream
+) {.async: (raises: [CancelledError]).} =
   try:
     let raw = string.fromBytes(await stream.readLp(1024))
     let requestResult = parseControlRequest(raw, c.signature, c.expected)
     if requestResult.isErr:
       c.failure = "control protocol error: " & requestResult.error
-      error "Control protocol error", peerId = stream.peerId, error = requestResult.error
+      error "Control protocol error",
+        peerId = stream.peerId, error = requestResult.error
       await stream.writeLp("failed")
       return
 
     let responseResult = applyControlRequest(c, stream.peerId, requestResult.get())
     if responseResult.isErr:
       c.failure = "control protocol error: " & responseResult.error
-      error "Control protocol error", peerId = stream.peerId, error = responseResult.error
+      error "Control protocol error",
+        peerId = stream.peerId, error = responseResult.error
       await stream.writeLp("failed")
       return
     await stream.writeLp(responseResult.get())
@@ -120,6 +124,7 @@ proc handleControlStream(c: Coordinator, stream: Stream) {.async: (raises: [Canc
 proc protocol*(c: Coordinator): LPProtocol =
   proc handle(stream: Stream, proto: string) {.async: (raises: [CancelledError]).} =
     await handleControlStream(c, stream)
+
   LPProtocol.new(@[ControlCodec], handle)
 
 proc exchange*(

@@ -8,7 +8,7 @@ import stew/byteutils
 import libp2p
 import libp2p/protocols/[kademlia, ping]
 import libp2p/protocols/pubsub/rpc/messages
-import network_lab/common/[coordinator, gossipsub_node, regression_messages]
+import network_lab/common/[coordinator, env_values, gossipsub_node, regression_messages]
 
 logScope:
   topics = "network-lab"
@@ -40,7 +40,10 @@ proc makeHandler(state: Received, cfg: NodeConfig): TopicHandler =
     else:
       state.failure = recordedResult.error
       error "Invalid GossipSub message",
-        nodeIndex = cfg.index, topic = topic, payload = raw, error = recordedResult.error
+        nodeIndex = cfg.index,
+        topic = topic,
+        payload = raw,
+        error = recordedResult.error
 
 proc makeValidator(cfg: NodeConfig): ValidatorHandler =
   return proc(
@@ -142,10 +145,7 @@ proc connectToBootstrap(
       cfg.bootstrapHost & ":" & $cfg.bootstrapPort
 
   await sleepAsync(
-    min(
-      (cfg.index * cfg.staggerMs).milliseconds,
-      max(deadline - Moment.now(), NoDelay),
-    )
+    min((cfg.index * cfg.staggerMs).milliseconds, max(deadline - Moment.now(), NoDelay))
   )
 
   var
@@ -169,8 +169,9 @@ proc connectToBootstrap(
         lastError = "DNS returned no addresses"
       for address in candidates:
         try:
-          connection.peerId =
-            await switch.connect(address, allowUnknownPeerId = true).wait(BootstrapDialTimeout)
+          connection.peerId = await switch
+            .connect(address, allowUnknownPeerId = true)
+            .wait(BootstrapDialTimeout)
           connection.address = address
           connected = true
           break
@@ -224,7 +225,8 @@ proc registerWithBootstrap(
     )
     if phaseResult.isErr:
       return Result[void, string].err(phaseResult.error)
-    let pingStream = await switch.dial(connection.peerId, PingCodec).wait(BootstrapPingTimeout)
+    let pingStream =
+      await switch.dial(connection.peerId, PingCodec).wait(BootstrapPingTimeout)
     try:
       let latency = await base.ping.ping(pingStream).wait(BootstrapPingTimeout)
       info "Bootstrap ping succeeded", nodeIndex = cfg.index, latency = latency
@@ -285,7 +287,8 @@ proc publishMessages(
       let payload = message(state.runId, cfg.index, round)
       let peers = await gossip.publish(cfg.topic, payload.toBytes())
       if peers == 0:
-        return Result[void, string].err("Publish had no remote peers for round " & $round)
+        return
+          Result[void, string].err("Publish had no remote peers for round " & $round)
       info "Published test message", nodeIndex = cfg.index, round = round, peers = peers
       await sleepAsync(PublishInterval)
     return Result[void, string].ok()
@@ -417,7 +420,7 @@ proc runExperiment(
   Result[void, string].ok()
 
 proc run(): Future[int] {.async.} =
-  let configResult = loadConfig(false)
+  let configResult = loadEnvConfig(false)
   if configResult.isErr:
     error "Invalid GossipSub configuration", error = configResult.error
     return 1
