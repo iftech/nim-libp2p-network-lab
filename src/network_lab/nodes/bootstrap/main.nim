@@ -11,23 +11,14 @@ logScope:
 
 const BootstrapStatusPollInterval = 1.seconds
 
-proc waitForRequestedShutdown(
-    event: AsyncEvent
-): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
-  try:
-    await event.wait()
-    return ok()
-  except CancelledError as exc:
-    raise exc
-
 proc monitorCoordinator(
     coordinator: Coordinator,
     cfg: NodeConfig,
-    shutdownResult: Future[Result[void, string]],
+    shutdownSignal: Future[void],
     deadline: Moment,
 ): Future[Result[void, string]] {.async.} =
   var previousPhase = ""
-  while not shutdownResult.finished():
+  while not shutdownSignal.finished():
     let currentPhase = coordinator.phase()
     if currentPhase != previousPhase:
       info "Coordinator phase",
@@ -51,13 +42,7 @@ proc monitorCoordinator(
     # detection latency to one status interval.
     await sleepAsync(BootstrapStatusPollInterval)
 
-  var shutdownCompletionResult: Result[void, string]
-  try:
-    shutdownCompletionResult = await shutdownResult
-  except CancelledError as exc:
-    raise exc
-  if shutdownCompletionResult.isErr:
-    return err(shutdownCompletionResult.error)
+  await shutdownSignal
   if coordinator.phase() != "complete":
     return err(
       "Bootstrap stopped before experiment completed in phase " & coordinator.phase()
@@ -112,17 +97,17 @@ proc main*(
 
   if started != nil and not started.finished():
     started.complete(addressesResult.get()[0])
-  let shutdownResult =
+  let shutdownSignal =
     if shutdownRequested == nil:
       waitShutdownSignal()
     else:
-      waitForRequestedShutdown(shutdownRequested)
+      shutdownRequested.wait()
   defer:
-    await noCancel shutdownResult.cancelAndWait()
+    await noCancel shutdownSignal.cancelAndWait()
 
   let deadline = Moment.now() + cfg.timeoutSeconds.seconds
   let monitorResult =
-    await monitorCoordinator(coordinator, cfg, shutdownResult, deadline)
+    await monitorCoordinator(coordinator, cfg, shutdownSignal, deadline)
   if monitorResult.isErr:
     error "Bootstrap coordination failed", reason = monitorResult.error
     return 1
