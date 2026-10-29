@@ -2,7 +2,7 @@
 # Copyright (c) Status Research & Development GmbH
 {.used.}
 
-import std/[os, unittest], results
+import std/[os, strutils, unittest], results
 
 import libp2p
 
@@ -47,6 +47,24 @@ suite "positive integer environment parsing":
       check getEnvPositiveInt(TestEnvironmentVariable, 17).isErr
 
 suite "configuration parsing":
+  test "default listen address is valid for TCP and QUIC":
+    let original = getEnv("LISTEN_ADDR")
+    let defined = existsEnv("LISTEN_ADDR")
+    defer:
+      if defined:
+        putEnv("LISTEN_ADDR", original)
+      else:
+        delEnv("LISTEN_ADDR")
+    delEnv("LISTEN_ADDR")
+    for transport in ["TCP", "QUIC"]:
+      withEnvironmentValue("TRANSPORT", transport) do():
+        let address = getEnvListenAddress()
+        require address.isOk
+        check (
+          if transport == "TCP": "/tcp/9000" in $address.get()
+          else: "/udp/9000/quic-v1" in $address.get()
+        )
+
   test "invalid listen address returns an error":
     withEnvironmentValue("LISTEN_ADDR", "not-a-multiaddress") do():
       check getEnvListenAddress().isErr

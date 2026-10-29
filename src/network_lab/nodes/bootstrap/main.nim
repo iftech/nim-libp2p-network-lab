@@ -4,7 +4,9 @@
 import chronos, chronicles
 import libp2p
 import results
-import network_lab/common/[coordinator, env_values, gossipsub_node, shutdown]
+import
+  network_lab/common/
+    [coordinator, env_values, failure_context, gossipsub_node, shutdown]
 
 logScope:
   topics = "network-lab"
@@ -56,7 +58,8 @@ proc main*(
     if started != nil and not started.finished():
       started.fail(newException(IOError, "Bootstrap startup did not complete"))
 
-  template startupFailure(message: string) =
+  template startupFailure(category, message: string) =
+    recordFailure("bootstrap", "startup", category, message)
     if started != nil and not started.finished():
       started.fail(newException(IOError, message))
     return 1
@@ -64,12 +67,12 @@ proc main*(
   let configResult = loadEnvConfig(true)
   if configResult.isErr:
     error "Invalid bootstrap configuration", error = configResult.error
-    startupFailure(configResult.error)
+    startupFailure("configuration", configResult.error)
   let cfg = configResult.get()
   let switchResult = buildSwitch(cfg.listen)
   if switchResult.isErr:
     error "Cannot build bootstrap switch", error = switchResult.error
-    startupFailure(switchResult.error)
+    startupFailure("switch_build", switchResult.error)
 
   let switch = switchResult.get()
   defer:
@@ -80,12 +83,12 @@ proc main*(
   let startResult = await startSwitch(switch)
   if startResult.isErr:
     error "Cannot start bootstrap switch", error = startResult.error
-    startupFailure(startResult.error)
+    startupFailure("switch_start", startResult.error)
 
   let addressesResult = switch.peerInfo.fullAddrs()
   if addressesResult.isErr or addressesResult.get().len == 0:
     error "Bootstrap has no advertised address"
-    startupFailure("Bootstrap has no advertised address")
+    startupFailure("address", "Bootstrap has no advertised address")
 
   info "Bootstrap started",
     peerId = switch.peerInfo.peerId,
@@ -109,6 +112,7 @@ proc main*(
   let monitorResult =
     await monitorCoordinator(coordinator, cfg, shutdownSignal, deadline)
   if monitorResult.isErr:
+    recordFailure("bootstrap", coordinator.phase(), "coordination", monitorResult.error)
     error "Bootstrap coordination failed", reason = monitorResult.error
     return 1
 
@@ -120,5 +124,6 @@ when isMainModule:
   try:
     quit(waitFor(main()))
   except CatchableError as exc:
+    recordFailure("bootstrap", "unknown", "unexpected", exc.msg)
     error "Bootstrap fatal error", error = exc.msg
     quit(1)

@@ -14,6 +14,7 @@ requires(
 
 task test, "Run unit and integration tests":
   mkDir "build"
+  exec "python3 -m unittest discover -s tests/python"
   exec "nim c -r tests/test_all.nim"
   exec "nim c -d:release --out:build/bootstrap src/network_lab/nodes/bootstrap/main.nim"
   exec "nim c -d:release --out:build/gossipsub src/network_lab/nodes/gossipsub/main.nim"

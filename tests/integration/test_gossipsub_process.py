@@ -1,5 +1,6 @@
 """Exercise the real node processes over loopback, including their exit codes."""
 
+import json
 import os
 import signal
 import socket
@@ -100,11 +101,43 @@ class NodeProcesses(unittest.TestCase):
                             process.kill()
                         process.wait()
 
+    def test_default_listen_address_starts_both_nodes(self):
+        # Run separately because both default to port 9000.
+        env = {**os.environ, "TRANSPORT": "TCP", "PARTICIPANTS": "2",
+               "SELF_CHECK_TIMEOUT_SECS": "15", "STARTUP_JITTER_STEP_MS": "0"}
+        env.pop("LISTEN_ADDR", None)
+        for binary, started in ((BOOTSTRAP, "Bootstrap started"),
+                                (GOSSIPSUB, "GossipSub node started")):
+            with self.subTest(binary=binary), tempfile.TemporaryFile(mode="w+") as log:
+                process = subprocess.Popen([binary], env=env, stdout=log, stderr=subprocess.STDOUT)
+                try:
+                    deadline = time.monotonic() + 10
+                    output = ""
+                    while time.monotonic() < deadline:
+                        log.seek(0)
+                        output = log.read()
+                        if started in output or process.poll() is not None:
+                            break
+                        time.sleep(0.1)
+                    self.assertIn(started, output)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait()
+
     def test_invalid_configuration_fails(self):
-        result = subprocess.run([GOSSIPSUB], env={**os.environ, "TRANSPORT": "invalid"},
-                                capture_output=True, text=True, timeout=15)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("TRANSPORT", result.stdout + result.stderr)
+        for binary, role in ((BOOTSTRAP, "bootstrap"), (GOSSIPSUB, "gossipsub")):
+            with self.subTest(role=role):
+                result = subprocess.run([binary], env={**os.environ, "TRANSPORT": "invalid"},
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 1)
+                output = result.stdout + result.stderr
+                line = next(line for line in output.splitlines()
+                            if line.startswith("NETWORK_LAB_FAILURE "))
+                failure = json.loads(line.removeprefix("NETWORK_LAB_FAILURE "))
+                self.assertEqual((failure["role"], failure["phase"], failure["category"]),
+                                 (role, "startup", "configuration"))
+                self.assertIn("TRANSPORT", failure["message"])
 
     def test_unreachable_bootstrap_fails(self):
         env = {**os.environ, "TRANSPORT": "TCP", "PARTICIPANTS": "2", "NODE_INDEX": "0",

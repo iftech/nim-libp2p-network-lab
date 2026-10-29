@@ -8,7 +8,9 @@ import stew/byteutils
 import libp2p
 import libp2p/protocols/[kademlia, ping]
 import libp2p/protocols/pubsub/rpc/messages
-import network_lab/common/[coordinator, env_values, gossipsub_node, regression_messages]
+import
+  network_lab/common/
+    [coordinator, env_values, failure_context, gossipsub_node, regression_messages]
 
 logScope:
   topics = "network-lab"
@@ -397,6 +399,9 @@ proc runExperiment(
 ): Future[Result[void, string]] {.async.} =
   let connectionResult = await connectToBootstrap(switch, cfg, deadline)
   if connectionResult.isErr:
+    recordFailure(
+      "gossipsub", "connection", "bootstrap_connection", connectionResult.error
+    )
     return Result[void, string].err(connectionResult.error)
   let connection = connectionResult.get()
   state.runId = $connection.peerId
@@ -408,23 +413,27 @@ proc runExperiment(
   let registrationResult =
     await registerWithBootstrap(switch, cfg, base, state, connection, deadline)
   if registrationResult.isErr:
+    recordFailure("gossipsub", "registration", "registration", registrationResult.error)
     await reportPhaseFailure(switch, cfg, connection.peerId, registrationResult.error)
     return Result[void, string].err(registrationResult.error)
 
   let discoveryResult =
     await discoverParticipants(switch, cfg, base, gossip, state, connection, deadline)
   if discoveryResult.isErr:
+    recordFailure("gossipsub", "discovery", "discovery", discoveryResult.error)
     await reportPhaseFailure(switch, cfg, connection.peerId, discoveryResult.error)
     return Result[void, string].err(discoveryResult.error)
 
   let publishingResult = await publishMessages(gossip, cfg, state)
   if publishingResult.isErr:
+    recordFailure("gossipsub", "publishing", "publishing", publishingResult.error)
     await reportPhaseFailure(switch, cfg, connection.peerId, publishingResult.error)
     return Result[void, string].err(publishingResult.error)
 
   let verificationResult =
     await verifyDelivery(switch, cfg, gossip, state, connection, deadline)
   if verificationResult.isErr:
+    recordFailure("gossipsub", "verification", "verification", verificationResult.error)
     await reportPhaseFailure(switch, cfg, connection.peerId, verificationResult.error)
     return Result[void, string].err(verificationResult.error)
   Result[void, string].ok()
@@ -432,12 +441,14 @@ proc runExperiment(
 proc run(): Future[int] {.async.} =
   let configResult = loadEnvConfig(false)
   if configResult.isErr:
+    recordFailure("gossipsub", "startup", "configuration", configResult.error)
     error "Invalid GossipSub configuration", error = configResult.error
     return 1
   let cfg = configResult.get()
 
   let switchResult = buildSwitch(cfg.listen)
   if switchResult.isErr:
+    recordFailure("gossipsub", "startup", "switch_build", switchResult.error)
     error "Cannot build GossipSub switch", error = switchResult.error
     return 1
 
@@ -463,6 +474,7 @@ proc run(): Future[int] {.async.} =
 
   let startResult = await startSwitch(switch)
   if startResult.isErr:
+    recordFailure("gossipsub", "startup", "switch_start", startResult.error)
     error "Cannot start GossipSub switch", error = startResult.error
     return 1
 
@@ -489,6 +501,7 @@ proc main*(): Future[int] {.async.} =
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
+    recordFailure("gossipsub", "unknown", "unexpected", exc.msg)
     error "GossipSub fatal error", error = exc.msg
     return 1
 
@@ -496,5 +509,6 @@ when isMainModule:
   try:
     quit(waitFor(main()))
   except CatchableError as exc:
+    recordFailure("gossipsub", "unknown", "unexpected", exc.msg)
     error "GossipSub fatal error", error = exc.msg
     quit(1)
