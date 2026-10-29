@@ -34,6 +34,10 @@ jobs:
       EXPERIMENT_WORKFLOW: run-nodes.yml
       EXPERIMENT_CONFIG: experiments/gossipsub-regression.yaml
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Dispatch the experiment
         id: dispatch
         env:
@@ -92,7 +96,7 @@ jobs:
 
           gh run watch "$RUN_ID" \
             --repo "$EXPERIMENT_REPOSITORY" \
-            --interval 10
+            --interval 10 || true
 
           CONCLUSION=$(
             gh run view "$RUN_ID" \
@@ -108,6 +112,8 @@ jobs:
               --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" |
               head -n 1
           )
+
+          echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
 
           PROBLEMS=0
           RESULT_ERROR=""
@@ -147,6 +153,25 @@ jobs:
           echo "unsuccessful=true" >> "$GITHUB_OUTPUT"
           echo "details=$DETAILS" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare structured node results
+        if: always() && steps.dispatch.outputs.run_id != ''
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          RESULTS_DIR="$RUNNER_TEMP/10ksim-$RUN_ID"
+          if [ -f "$RESULTS_DIR/node_results.json" ]; then
+            python3 tools/summarize_node_errors.py "$RESULTS_DIR" > "$RESULTS_DIR/diagnostics.md"
+          fi
+
+      - name: Upload structured node results
+        if: always() && steps.dispatch.outputs.run_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: structured-node-results-${{ steps.dispatch.outputs.run_id }}
+          path: ${{ runner.temp }}/10ksim-${{ steps.dispatch.outputs.run_id }}/node_results.enriched.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Open an issue for an unsuccessful experiment
         if: always() && (steps.analyze.outputs.unsuccessful == 'true' || (steps.dispatch.outcome == 'success' && steps.analyze.outcome == 'failure'))
         env:
@@ -154,6 +179,7 @@ jobs:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
           RUN_URL: ${{ steps.dispatch.outputs.run_url }}
           DETAILS: ${{ steps.analyze.outputs.details }}
+          ARTIFACT_ID: ${{ steps.analyze.outputs.artifact_id }}
         run: |
           set -euo pipefail
 
@@ -170,7 +196,15 @@ jobs:
             "- 10ksim workflow and logs artifact: [$RUN_ID]($RUN_URL)")
 
           RESULTS_DIR="$RUNNER_TEMP/10ksim-$RUN_ID"
-          if [ -f "$RESULTS_DIR/summary.md" ]; then
+          if [ -n "$ARTIFACT_ID" ]; then
+            ISSUE_BODY="$ISSUE_BODY"$'\n'"- [Download full logs artifact]($RUN_URL/artifacts/$ARTIFACT_ID)"
+          fi
+          if [ -f "$RUNNER_TEMP/10ksim-$RUN_ID/node_results.enriched.json" ]; then
+            ISSUE_BODY="$ISSUE_BODY"$'\n'"- [Structured results artifact]($GITHUB_SERVER_URL/$REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          fi
+          if [ -f "$RESULTS_DIR/diagnostics.md" ]; then
+            ISSUE_BODY="$ISSUE_BODY"$'\n\n'"$(cat "$RESULTS_DIR/diagnostics.md")"
+          elif [ -f "$RESULTS_DIR/summary.md" ]; then
             ISSUE_BODY="$ISSUE_BODY"$'\n\n'"$(cat "$RESULTS_DIR/summary.md")"
           fi
 

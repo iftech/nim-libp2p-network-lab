@@ -1,25 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
-import std/[os, random, strutils]
+import std/random
 
 import chronicles
+import results
+import network_lab/common/env_values
 
-proc failurePercent(): int =
-  let value = getEnv("FAILURE_PERCENT", "10")
-  try:
-    result = parseInt(value)
-  except ValueError:
-    warn "Invalid FAILURE_PERCENT; using default", value = value
-    return 10
-
-  if result < 0 or result > 100:
-    warn "FAILURE_PERCENT must be in the range 0..100; using default", value = value
-    result = 10
+const DefaultFailurePercent = 10
 
 randomize()
 
-let percentage = failurePercent()
+let percentageResult = getEnvInt("FAILURE_PERCENT", DefaultFailurePercent, 0, 100)
+let percentage =
+  if percentageResult.isOk:
+    percentageResult.get()
+  else:
+    warn "Invalid FAILURE_PERCENT; using default", error = percentageResult.error
+    DefaultFailurePercent
 if rand(99) < percentage:
   let code = rand(1 .. 255)
   error "Exiting with error code", code = code

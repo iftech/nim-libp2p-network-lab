@@ -12,6 +12,8 @@ proc waitShutdownSignal*() {.async: (raises: [CancelledError]).} =
   try:
     let completedSignalFut = await one(sigIntFut, sigTermFut)
     await completedSignalFut
+  except CancelledError as e:
+    raise e
   except AsyncError as e:
     raiseAssert "unexpected AsyncError in waitShutdownSignal: " & e.msg
   finally:
