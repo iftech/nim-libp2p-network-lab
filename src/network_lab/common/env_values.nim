@@ -2,7 +2,7 @@
 # Copyright (c) Status Research & Development GmbH
 
 import std/[os, strutils]
-from std/net import getPrimaryIPAddr
+from std/net import getPrimaryIPAddr, `$`
 import results
 import stew/byteutils
 import libp2p
