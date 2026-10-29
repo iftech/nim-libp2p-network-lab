@@ -71,22 +71,23 @@ proc main*(
   if switchResult.isErr:
     error "Cannot build bootstrap switch", error = switchResult.error
     return 1
+
   let switch = switchResult.get()
   defer:
     await switch.stop()
-  let
-    rng = libp2p.newRng()
-    coordinator = newCoordinator(cfg.participants, cfg.configSignature())
-  discard mountBase(switch, rng)
+  let coordinator = newCoordinator(cfg.participants, cfg.configSignature())
+  discard mountBase(switch, switch.rng)
   switch.mount(coordinator.protocol())
   let startResult = await startSwitch(switch)
   if startResult.isErr:
     error "Cannot start bootstrap switch", error = startResult.error
     return 1
+
   let addressesResult = switch.peerInfo.fullAddrs()
   if addressesResult.isErr or addressesResult.get().len == 0:
     error "Bootstrap has no advertised address"
     return 1
+
   info "Bootstrap started",
     peerId = switch.peerInfo.peerId,
     addresses = addressesResult.get(),
@@ -94,6 +95,7 @@ proc main*(
     libp2pRevision = Libp2pRevision,
     participants = cfg.participants,
     timeoutSeconds = cfg.timeoutSeconds
+
   if started != nil and not started.finished():
     started.complete(addressesResult.get()[0])
   let shutdownResult =
@@ -103,13 +105,16 @@ proc main*(
       waitForRequestedShutdown(shutdownRequested)
   defer:
     await noCancel shutdownResult.cancelAndWait()
+
   let deadline = Moment.now() + cfg.timeoutSeconds.seconds
   let monitorResult =
     await monitorCoordinator(coordinator, cfg, shutdownResult, deadline)
   if monitorResult.isErr:
     error "Bootstrap coordination failed", reason = monitorResult.error
     return 1
+
   info "Bootstrap stopped after experiment completed"
+
   return 0
 
 when isMainModule:

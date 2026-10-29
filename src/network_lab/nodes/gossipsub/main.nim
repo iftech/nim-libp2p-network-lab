@@ -103,6 +103,7 @@ proc awaitPhase(
   while Moment.now() < deadline:
     if state.failure.len > 0:
       return Result[void, string].err(state.failure)
+
     try:
       let phaseResult = await exchange(
         switch, peer, command, cfg.index, cfg.configSignature()
@@ -122,7 +123,9 @@ proc awaitPhase(
       lastError = exc.msg
       warn "Coordinator request failed; retrying",
         nodeIndex = cfg.index, command = command, error = exc.msg
+
     await sleepAsync(CoordinatorRetryDelay)
+
   Result[void, string].err("Timed out waiting for " & desired & ": " & lastError)
 
 type BootstrapConnection = object
@@ -364,15 +367,17 @@ proc verifyDelivery(
     return Result[void, string].err(exc.msg)
 
 proc reportPhaseFailure(
-    switch: Switch, cfg: NodeConfig, peer: PeerId, message: string
+    switch: Switch, cfg: NodeConfig, bootstrapPeerId: PeerId, message: string
 ): Future[void] {.async.} =
   error "GossipSub self-check failed",
     nodeIndex = cfg.index,
     peerId = switch.peerInfo.peerId,
-    bootstrapPeerId = peer,
+    bootstrapPeerId,
     error = message
   try:
-    discard await exchange(switch, peer, "failed", cfg.index, cfg.configSignature())
+    discard await exchange(
+      switch, bootstrapPeerId, "failed", cfg.index, cfg.configSignature()
+    )
       .wait(FailureReportTimeout)
   except CatchableError:
     discard
