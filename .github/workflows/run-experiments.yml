@@ -11,6 +11,11 @@ on:
         default: "yes"
         type: choice
         options: ["yes", "no"]
+      libp2p_commit:
+        description: nim-libp2p commit (full SHA; empty uses latest master; ignored when build_images is no)
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +26,8 @@ jobs:
   build-images:
     if: github.event_name == 'schedule' || inputs.build_images != 'no'
     uses: ./.github/workflows/build-images.yml
+    with:
+      libp2p_commit: ${{ inputs.libp2p_commit || '' }}
 
   run:
     needs: build-images

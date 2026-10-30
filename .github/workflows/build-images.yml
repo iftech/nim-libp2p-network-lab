@@ -2,7 +2,19 @@ name: Build node images
 
 on:
   workflow_dispatch:
+    inputs:
+      libp2p_commit:
+        description: nim-libp2p commit (full SHA; empty uses latest master)
+        required: false
+        default: ""
+        type: string
   workflow_call:
+    inputs:
+      libp2p_commit:
+        description: nim-libp2p commit (full SHA; empty uses latest master)
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: build-node-images-${{ github.ref }}
@@ -21,13 +33,18 @@ jobs:
     outputs:
       revision: ${{ steps.resolve.outputs.revision }}
     steps:
-      - name: Resolve nim-libp2p master
+      - name: Resolve nim-libp2p commit
         id: resolve
+        env:
+          LIBP2P_COMMIT: ${{ inputs.libp2p_commit }}
         run: |
           set -euo pipefail
-          REVISION=$(git ls-remote "$LIBP2P_REPOSITORY" refs/heads/master | awk '{print $1}')
-          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::Could not resolve a unique nim-libp2p master commit"
+          REVISION="$LIBP2P_COMMIT"
+          if [ -z "$REVISION" ]; then
+            REVISION=$(git ls-remote "$LIBP2P_REPOSITORY" refs/heads/master | awk '{print $1}')
+          fi
+          [[ "$REVISION" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo "::error::Expected a full nim-libp2p commit SHA, or an empty input to resolve master"
             exit 1
           }
           echo "Building nim-libp2p revision $REVISION"
