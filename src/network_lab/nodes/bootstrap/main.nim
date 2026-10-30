@@ -42,19 +42,24 @@ proc monitorCoordinator(
       info "Failure notification finished",
         notified = coordinator.failureNotified.len, expected = cfg.participants
       return err("Bootstrap observed failure: " & coordinator.failure)
-    if currentPhase != "complete" and Moment.now() >= deadline:
+    if currentPhase == "complete" and
+        coordinator.completionNotified.len == cfg.participants:
+      return ok()
+    if Moment.now() >= deadline:
       return err(
         "Bootstrap coordination timed out in phase " & currentPhase & ": registered=" &
           $coordinator.registered() & ", ready=" & $coordinator.ready.len &
           ", published=" & $coordinator.published.len & ", verified=" &
-          $coordinator.verified.len & ", expected=" & $cfg.participants
+          $coordinator.verified.len & ", completion notified=" &
+          $coordinator.completionNotified.len & ", expected=" & $cfg.participants
       )
     # Coordinator phase changes have no notification; polling also bounds shutdown
     # detection latency to one status interval.
     await sleepAsync(BootstrapStatusPollInterval)
 
   await shutdownSignal
-  if coordinator.phase() != "complete":
+  if coordinator.phase() != "complete" or
+      coordinator.completionNotified.len != cfg.participants:
     return err(
       "Bootstrap stopped before experiment completed in phase " & coordinator.phase()
     )

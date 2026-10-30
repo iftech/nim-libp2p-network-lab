@@ -14,7 +14,7 @@ type
     signature: string
     peers: Table[int, PeerId]
     ready*, published*, verified*: HashSet[int]
-    failureNotified*: HashSet[int]
+    failureNotified*, completionNotified*: HashSet[int]
     failure*: string
 
   ControlCommand = enum
@@ -113,6 +113,7 @@ proc applyControlRequest(
 proc handleControlStream(
     c: Coordinator, stream: Stream
 ) {.async: (raises: [CancelledError]).} =
+  var completedIndex = -1
   try:
     let raw = string.fromBytes(await stream.readLp(1024))
     let requestResult = parseControlRequest(raw, c.signature, c.expected)
@@ -135,6 +136,8 @@ proc handleControlStream(
       c.failureNotified.incl(requestResult.get().index)
     else:
       await stream.writeLp(responseResult.get())
+      if responseResult.get() == "complete":
+        completedIndex = requestResult.get().index
   except CancelledError as exc:
     raise exc
   except LPStreamError as exc:
@@ -151,6 +154,8 @@ proc handleControlStream(
       discard
   finally:
     await stream.close()
+    if completedIndex >= 0:
+      c.completionNotified.incl(completedIndex)
 
 proc protocol*(c: Coordinator): LPProtocol =
   proc handle(stream: Stream, proto: string) {.async: (raises: [CancelledError]).} =

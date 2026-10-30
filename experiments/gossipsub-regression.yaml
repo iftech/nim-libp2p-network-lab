@@ -9,7 +9,7 @@ nodes:
   - name: bootstrap
     image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/bootstrap, tag: main}
     count: 1
-    self_terminating: false
+    self_terminating: true
     env: &node_config
       TRANSPORT: BOTH
       PARTICIPANTS: 500

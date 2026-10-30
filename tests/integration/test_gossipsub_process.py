@@ -2,7 +2,6 @@
 
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -51,7 +50,6 @@ class NodeProcesses(unittest.TestCase):
                                         "NODE_INDEX": str(i - offset), "NODE_INDEX_OFFSET": str(offset)}))
                 deadline = time.monotonic() + 170
                 codes = [p.wait(timeout=max(1, deadline - time.monotonic())) for p in nodes]
-                boot.send_signal(signal.SIGTERM)
                 boot_code = boot.wait(timeout=15)
                 self.assertEqual([boot_code, *codes], [0] * (count + 1))
                 if transport == "BOTH":
