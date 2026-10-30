@@ -61,7 +61,7 @@ The current experiment uses:
 - **Coordinated phases:** participants register with the bootstrap, discover peers
   through Kad-DHT, and wait for stable GossipSub meshes before publishing begins.
   The bootstrap exits after notifying all participants that verification completed.
-- **Delivery checks:** each participant publishes ten messages and must receive
+- **Delivery checks:** each participant publishes 100 messages and must receive
   at least 99% of the expected messages from other participants. Nodes also check
   message validity and self-delivery, then exit successfully only after all
   participants have verified delivery.
