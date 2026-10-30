@@ -4,23 +4,34 @@ startup_timeout: 600
 duration: 1200
 poll_interval: 5
 nodes:
+  # One shared mesh: 250 TCP listeners + 250 QUIC listeners, plus a coordinator.
+  # Every participant can dial both transports.
   - name: bootstrap
     image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/bootstrap, tag: main}
     count: 1
-    self_terminating: false
+    self_terminating: true
     env: &node_config
-      TRANSPORT: TCP
-      PARTICIPANTS: 499
-      MESSAGE_ROUNDS: 3
+      TRANSPORT: BOTH
+      PARTICIPANTS: 500
+      MESSAGE_ROUNDS: 10
       DELIVERY_PERCENT: 99
       SELF_CHECK_TIMEOUT_SECS: 1050
       MAX_CONNECTIONS: 600
-  - name: gossipsub
-    image: {repo: ghcr.io/iftech/nim-libp2p-network-lab/gossipsub, tag: main}
-    count: 499
+  - name: gossipsub-tcp
+    image: &gossipsub_image {repo: ghcr.io/iftech/nim-libp2p-network-lab/gossipsub, tag: main}
+    count: 250
     self_terminating: true
-    env:
+    env: &participant_config
       <<: *node_config
+      TRANSPORT: TCP
       BOOTSTRAP_HOST: bootstrap-0.nodes
       STARTUP_JITTER_STEP_MS: 50
       MAX_CONNECTIONS: 250
+  - name: gossipsub-quic
+    image: *gossipsub_image
+    count: 250
+    self_terminating: true
+    env:
+      <<: *participant_config
+      TRANSPORT: QUIC
+      NODE_INDEX_OFFSET: 250

@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) Status Research & Development GmbH
 
-import std/[hashes, tables]
+import std/[hashes, strutils, tables]
 import chronos, results
 import stew/byteutils
 import libp2p
 import libp2p/protocols/[kademlia, ping]
 import libp2p/protocols/pubsub/rpc/messages
+import libp2p/transports/[transport, tcptransport, quictransport]
 import ./env_values
+import ./dial_only_transport
 
 proc buildSwitch*(address: MultiAddress): Result[Switch, string] {.raises: [].} =
   let valuesResult = loadEnvSwitchValues()
@@ -15,12 +17,40 @@ proc buildSwitch*(address: MultiAddress): Result[Switch, string] {.raises: [].} 
     return Result[Switch, string].err(valuesResult.error)
   let values = valuesResult.get()
 
-  var builder =
-    SwitchBuilder.new().withAddress(address).withMaxConnections(values.maxConnections)
-  if values.transport == "TCP":
-    builder = builder.withTcpTransport().withNoise().withMplex()
+  var addresses = @[address]
+  if values.transport == "BOTH":
+    # The coordinator accepts both cohorts on the same TCP/UDP port number.
+    if "/tcp/" notin $address:
+      return err("TRANSPORT=BOTH requires a TCP LISTEN_ADDR")
+    let quicAddress =
+      MultiAddress.init(($address).replace("/tcp/", "/udp/") & "/quic-v1")
+    if quicAddress.isErr:
+      return err("Cannot derive QUIC listen address from LISTEN_ADDR")
+    addresses.add(quicAddress.get())
+  # Participants listen on their selected transport, but can dial either kind
+  # of peer so TCP and QUIC listeners form a single mesh.
+  var builder = SwitchBuilder
+    .new()
+    .withAddresses(addresses)
+    .withMaxConnections(values.maxConnections)
+    .withNoise()
+    .withMplex()
+  if values.transport == "QUIC":
+    builder = builder.withQuicTransport().withTransport(
+        proc(config: TransportConfig): Transport =
+          dialOnly(TcpTransport.new({}, config.upgr))
+      )
+  elif values.transport == "TCP":
+    builder = builder.withTcpTransport().withTransport(
+        proc(config: TransportConfig): Transport =
+          dialOnly(
+            QuicTransport.new(
+              config.upgr, config.privateKey, config.rng, config.connManager
+            )
+          )
+      )
   else:
-    builder = builder.withQuicTransport()
+    builder = builder.withTcpTransport().withQuicTransport()
   if values.announcedAddress.isSome:
     builder = builder.withAnnouncedAddress(values.announcedAddress.get())
   if values.privateKey.isSome:
@@ -77,5 +107,5 @@ proc remotePeerCount*(gossip: GossipSub, topic: string): int =
   gossip.gossipsub.getOrDefault(topic).len
 
 proc configSignature*(cfg: NodeConfig): string =
-  cfg.transport & "," & cfg.topic & "," & $cfg.participants & "," & $cfg.rounds & "," &
-    $cfg.threshold & "," & Libp2pRevision
+  cfg.topic & "," & $cfg.participants & "," & $cfg.rounds & "," & $cfg.threshold & "," &
+    Libp2pRevision

@@ -180,6 +180,7 @@ jobs:
           retention-days: 14
 
       - name: Open an issue for an unsuccessful experiment
+        id: issue
         if: always() && (steps.analyze.outputs.unsuccessful == 'true' || (steps.dispatch.outcome == 'success' && steps.analyze.outcome == 'failure'))
         env:
           GH_TOKEN: ${{ github.token }}
@@ -225,3 +226,53 @@ jobs:
               --assignee vladopajic
           )
           echo "Opened issue: $ISSUE_URL"
+          echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize the experiment
+        if: always()
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          UNSUCCESSFUL: ${{ steps.analyze.outputs.unsuccessful }}
+          ISSUE_URL: ${{ steps.issue.outputs.issue_url }}
+        run: |
+          set -euo pipefail
+
+          FAILED_NODES="Unknown (results unavailable)"
+          if [ "$UNSUCCESSFUL" = "false" ]; then
+            STATUS="Succeeded"
+            # Successful runs do not upload a results artifact.
+            FAILED_NODES="0"
+          elif [ "$UNSUCCESSFUL" = "true" ]; then
+            STATUS="Unsuccessful"
+          elif [ -n "$RUN_ID" ]; then
+            STATUS="Unknown (analysis did not complete)"
+          else
+            STATUS="Not started (dispatch did not complete)"
+          fi
+
+          RESULTS_FILE="$RUNNER_TEMP/10ksim-$RUN_ID/node_results.json"
+          if [ -f "$RESULTS_FILE" ]; then
+            FAILED_NODES=$(
+              jq -er '
+                if (.failed | type) == "number" and (.num_nodes | type) == "number"
+                then "\(.failed) / \(.num_nodes)"
+                else error("missing node counts")
+                end
+              ' "$RESULTS_FILE" 2>/dev/null || printf '%s' 'Unknown (results unavailable)'
+            )
+          fi
+
+          {
+            echo "## Experiment summary"
+            echo ""
+            echo "- Experiment: \`$EXPERIMENT_CONFIG\`"
+            echo "- Outcome: **$STATUS**"
+            echo "- Failed nodes: **$FAILED_NODES**"
+            if [ -n "$RUN_URL" ]; then
+              echo "- [Experiment run]($RUN_URL)"
+            fi
+            if [ -n "$ISSUE_URL" ]; then
+              echo "- [Detailed report]($ISSUE_URL)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
