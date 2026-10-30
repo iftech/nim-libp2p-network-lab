@@ -9,9 +9,9 @@ nodes:
     count: 1
     self_terminating: false
     env: &node_config
-      TRANSPORT: TCP
+      TRANSPORT: QUIC
       PARTICIPANTS: 499
-      MESSAGE_ROUNDS: 3
+      MESSAGE_ROUNDS: 10
       DELIVERY_PERCENT: 99
       SELF_CHECK_TIMEOUT_SECS: 1050
       MAX_CONNECTIONS: 600
