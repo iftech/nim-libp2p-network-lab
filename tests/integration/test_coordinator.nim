@@ -5,7 +5,7 @@
 
 import std/[os, unittest]
 import chronos, libp2p, results
-import network_lab/common/[coordinator, gossipsub_node]
+import network_lab/common/[coordinator, env_values, gossipsub_node]
 import network_lab/nodes/bootstrap/main as bootstrap
 
 proc failurePropagation() {.async.} =
@@ -21,7 +21,7 @@ proc failurePropagation() {.async.} =
       clients.add(client)
       await client.start()
       peer = await client.connect(address, allowUnknownPeerId = true)
-    let signature = "TCP,network-lab-regression,3,3,99,unknown"
+    let signature = loadEnvConfig(true).get().configSignature()
     for i, client in clients:
       doAssert (await exchange(client, peer, "register", i, signature)).get() == "ready"
     let first = await exchange(

@@ -87,7 +87,7 @@ proc loadEnvIntegerConfig(cfg: var NodeConfig, bootstrap: bool): Result[void, st
       cfg.field = valueResult.get()
 
   setInt(bootstrapPort, "BOOTSTRAP_PORT", 9000, 1, 65535)
-  setInt(participants, "PARTICIPANTS", 2, 2, 499)
+  setInt(participants, "PARTICIPANTS", 2, 2, 500)
   setInt(
     index,
     "NODE_INDEX",
@@ -98,6 +98,13 @@ proc loadEnvIntegerConfig(cfg: var NodeConfig, bootstrap: bool): Result[void, st
     else:
       cfg.participants - 1,
   )
+  if not bootstrap:
+    let offset = getEnvInt("NODE_INDEX_OFFSET", 0, 0, cfg.participants - 1)
+    if offset.isErr:
+      return err(offset.error)
+    cfg.index += offset.get()
+    if cfg.index >= cfg.participants:
+      return err("NODE_INDEX + NODE_INDEX_OFFSET must be less than PARTICIPANTS")
   setInt(rounds, "MESSAGE_ROUNDS", 3, 1, 100)
   setInt(threshold, "DELIVERY_PERCENT", 99, 1, 100)
   setInt(timeoutSeconds, "SELF_CHECK_TIMEOUT_SECS", 900, 1, 3600)
@@ -109,8 +116,11 @@ proc loadEnvIntegerConfig(cfg: var NodeConfig, bootstrap: bool): Result[void, st
 proc loadEnvConfig*(bootstrap: bool): Result[NodeConfig, string] =
   var cfg: NodeConfig
   cfg.transport = getEnv("TRANSPORT", "TCP").toUpperAscii()
-  if cfg.transport notin ["TCP", "QUIC"]:
-    return err("TRANSPORT must be TCP or QUIC, got: " & cfg.transport)
+  if cfg.transport notin ["TCP", "QUIC"] and not (bootstrap and cfg.transport == "BOTH"):
+    return err(
+      "TRANSPORT must be TCP or QUIC (bootstrap also accepts BOTH), got: " &
+        cfg.transport
+    )
   let topicResult = getEnvGossipTopic()
   if topicResult.isErr:
     return err(topicResult.error)
@@ -127,7 +137,7 @@ proc loadEnvConfig*(bootstrap: bool): Result[NodeConfig, string] =
     return err(listenAddressResult.error)
   cfg.listen = listenAddressResult.get()
   let addressText = $cfg.listen
-  if (cfg.transport == "TCP" and "/tcp/" notin addressText) or
+  if (cfg.transport in ["TCP", "BOTH"] and "/tcp/" notin addressText) or
       (cfg.transport == "QUIC" and "/quic-v1" notin addressText):
     return err("LISTEN_ADDR does not match TRANSPORT: " & addressText)
   ok(cfg)
@@ -135,8 +145,8 @@ proc loadEnvConfig*(bootstrap: bool): Result[NodeConfig, string] =
 proc loadEnvSwitchValues*(): Result[SwitchEnvValues, string] =
   var values: SwitchEnvValues
   values.transport = getEnv("TRANSPORT", "TCP").toUpperAscii()
-  if values.transport notin ["TCP", "QUIC"]:
-    return err("TRANSPORT must be TCP or QUIC")
+  if values.transport notin ["TCP", "QUIC", "BOTH"]:
+    return err("TRANSPORT must be TCP, QUIC or BOTH")
   let maxConnectionsResult = getEnvInt("MAX_CONNECTIONS", 250, 1, 10000)
   if maxConnectionsResult.isErr:
     return err(maxConnectionsResult.error)

@@ -47,6 +47,35 @@ suite "positive integer environment parsing":
       check getEnvPositiveInt(TestEnvironmentVariable, 17).isErr
 
 suite "configuration parsing":
+  test "cohorts map local indexes to distinct global participant indexes":
+    withEnvironmentValue("PARTICIPANTS", "500") do():
+      withEnvironmentValue("NODE_INDEX", "249") do():
+        withEnvironmentValue("NODE_INDEX_OFFSET", "250") do():
+          let config = loadEnvConfig(false)
+          require config.isOk
+          check config.get().index == 499
+        withEnvironmentValue("NODE_INDEX_OFFSET", "251") do():
+          check loadEnvConfig(false).isErr
+
+  test "only the bootstrap can listen on both transports":
+    withEnvironmentValue("TRANSPORT", "BOTH") do():
+      withEnvironmentValue("LISTEN_ADDR", "/ip4/127.0.0.1/tcp/0") do():
+        check loadEnvConfig(true).isOk
+        check loadEnvConfig(false).isErr
+
+  test "transport choices share a coordination signature":
+    let tcp = NodeConfig(
+      transport: "TCP", topic: "test", participants: 4, rounds: 3, threshold: 99
+    )
+    var quic = tcp
+    quic.transport = "QUIC"
+    var bootstrap = tcp
+    bootstrap.transport = "BOTH"
+    check tcp.configSignature() == quic.configSignature()
+    check tcp.configSignature() == bootstrap.configSignature()
+    quic.participants = 3
+    check tcp.configSignature() != quic.configSignature()
+
   test "mesh minimum must fit the number of remote participants":
     withEnvironmentValue("TRANSPORT", "TCP") do():
       withEnvironmentValue("PARTICIPANTS", "3") do():

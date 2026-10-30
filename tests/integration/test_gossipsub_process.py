@@ -23,8 +23,6 @@ class NodeProcesses(unittest.TestCase):
             port = sock.getsockname()[1]
         address = (f"/ip4/127.0.0.1/udp/{port}/quic-v1" if transport == "QUIC"
                    else f"/ip4/127.0.0.1/tcp/{port}")
-        listen = ("/ip4/127.0.0.1/udp/0/quic-v1" if transport == "QUIC"
-                  else "/ip4/127.0.0.1/tcp/0")
         base = {**os.environ, "TRANSPORT": transport, "PARTICIPANTS": str(count),
                 "MESSAGE_ROUNDS": "3", "DELIVERY_PERCENT": "99",
                 "SELF_CHECK_TIMEOUT_SECS": "150", "STARTUP_JITTER_STEP_MS": "10"}
@@ -41,14 +39,26 @@ class NodeProcesses(unittest.TestCase):
                     return proc
 
                 boot = start(BOOTSTRAP, "bootstrap.log", {"LISTEN_ADDR": address})
-                nodes = [start(GOSSIPSUB, f"node-{i}.log",
-                               {"LISTEN_ADDR": listen, "BOOTSTRAP_HOST": "localhost",
-                                "BOOTSTRAP_PORT": str(port), "NODE_INDEX": str(i)}) for i in range(count)]
+                nodes = []
+                for i in range(count):
+                    node_transport = ("TCP" if i < count // 2 else "QUIC") if transport == "BOTH" else transport
+                    offset = count // 2 if transport == "BOTH" and node_transport == "QUIC" else 0
+                    node_listen = ("/ip4/127.0.0.1/udp/0/quic-v1" if node_transport == "QUIC"
+                                   else "/ip4/127.0.0.1/tcp/0")
+                    nodes.append(start(GOSSIPSUB, f"node-{i}.log",
+                                       {"TRANSPORT": node_transport, "LISTEN_ADDR": node_listen,
+                                        "BOOTSTRAP_HOST": "localhost", "BOOTSTRAP_PORT": str(port),
+                                        "NODE_INDEX": str(i - offset), "NODE_INDEX_OFFSET": str(offset)}))
                 deadline = time.monotonic() + 170
                 codes = [p.wait(timeout=max(1, deadline - time.monotonic())) for p in nodes]
                 boot.send_signal(signal.SIGTERM)
                 boot_code = boot.wait(timeout=15)
                 self.assertEqual([boot_code, *codes], [0] * (count + 1))
+                if transport == "BOTH":
+                    files[0].flush()
+                    bootstrap_output = Path(files[0].name).read_text()
+                    self.assertIn(f"/tcp/{port}", bootstrap_output)
+                    self.assertIn(f"/udp/{port}/quic-v1", bootstrap_output)
                 for log in files[1:]:
                     log.flush()
                     output = Path(log.name).read_text()
@@ -77,6 +87,10 @@ class NodeProcesses(unittest.TestCase):
 
     def test_tcp_scaled(self):
         self.run_network("TCP", int(os.environ.get("NETWORK_LAB_TEST_SCALE", "10")))
+
+    def test_mixed_transports(self):
+        # All participants must receive messages across the transport boundary.
+        self.run_network("BOTH", 4)
 
     def test_missing_participant_fails(self):
         with socket.socket() as sock:
